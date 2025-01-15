@@ -16,8 +16,5 @@ let package = Package(
         .target(
             name: "SimpleCameraLibrary",
             dependencies: []),
-//        .testTarget(
-//                    name: "SimpleCameraLibraryTests",
-//                    dependencies: ["SimpleCameraLibrary"]),
     ]
 )

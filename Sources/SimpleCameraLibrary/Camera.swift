@@ -11,7 +11,7 @@ typealias PlatformImage = NSImage
 
 // MARK: - Camera Service
 @available(iOS 13.0, macOS 10.15, *)
-class CameraService: NSObject, ObservableObject {
+public class CameraService: NSObject, ObservableObject {
     @Published var session = AVCaptureSession()
     @Published var output = AVCapturePhotoOutput()
     @Published var preview: AVCaptureVideoPreviewLayer?
@@ -141,7 +141,7 @@ struct CameraPreviewView: NSViewRepresentable {
 #endif
 
 // MARK: - Camera View
-@available(iOS 13.0, macOS 11.0, *)
+@available(iOS 14.0, macOS 11.0, *)
 struct CameraView: View {
     @StateObject private var cameraService = CameraService()
     

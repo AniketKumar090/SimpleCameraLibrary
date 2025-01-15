@@ -18,13 +18,13 @@ public class CameraService: NSObject, ObservableObject {
     @Published var recentImage: PlatformImage?
     @Published var showingPhotoReview = false
     
-    override init() {
+    override public init() {
         super.init()
         checkPermissions()
         setupCamera()
     }
     
-    func checkPermissions() {
+    public func checkPermissions() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             return
@@ -41,7 +41,7 @@ public class CameraService: NSObject, ObservableObject {
         }
     }
     
-    func setupCamera() {
+    public func setupCamera() {
         do {
             session.beginConfiguration()
             
@@ -65,7 +65,7 @@ public class CameraService: NSObject, ObservableObject {
         }
     }
     
-    func capturePhoto() {
+    public func capturePhoto() {
         let settings = AVCapturePhotoSettings()
         output.capturePhoto(with: settings, delegate: self)
     }
@@ -100,10 +100,10 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
 // MARK: - Camera Preview View
 #if os(iOS)
 @available(iOS 13.0, *)
-struct CameraPreviewView: UIViewRepresentable {
+public struct CameraPreviewView: UIViewRepresentable {
     @ObservedObject var cameraService: CameraService
     
-    func makeUIView(context: Context) -> UIView {
+    public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
         
         cameraService.preview = AVCaptureVideoPreviewLayer(session: cameraService.session)
@@ -116,14 +116,14 @@ struct CameraPreviewView: UIViewRepresentable {
         return view
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    public func updateUIView(_ uiView: UIView, context: Context) {}
 }
 #elseif os(macOS)
 @available(macOS 10.15, *)
-struct CameraPreviewView: NSViewRepresentable {
+public struct CameraPreviewView: NSViewRepresentable {
     @ObservedObject var cameraService: CameraService
     
-    func makeNSView(context: Context) -> NSView {
+    public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         
         cameraService.preview = AVCaptureVideoPreviewLayer(session: cameraService.session)
@@ -136,16 +136,16 @@ struct CameraPreviewView: NSViewRepresentable {
         return view
     }
     
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    public func updateNSView(_ nsView: NSView, context: Context) {}
 }
 #endif
 
 // MARK: - Camera View
 @available(iOS 14.0, macOS 11.0, *)
-struct CameraView: View {
+public struct CameraView: View {
     @StateObject private var cameraService = CameraService()
     
-    var body: some View {
+    public var body: some View {
         ZStack {
             CameraPreviewView(cameraService: cameraService)
             
@@ -176,11 +176,11 @@ struct CameraView: View {
 
 // MARK: - Photo Review View
 @available(iOS 13.0, macOS 11.0, *)
-struct PhotoReviewView: View {
+public struct PhotoReviewView: View {
     let image: PlatformImage
     @Binding var isPresented: Bool
     
-    var body: some View {
+    public var body: some View {
         VStack {
             #if os(iOS)
             Image(uiImage: image)

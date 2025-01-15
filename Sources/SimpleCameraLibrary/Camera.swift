@@ -74,7 +74,7 @@ public class CameraService: NSObject, ObservableObject {
 // MARK: - Photo Capture Delegate
 @available(iOS 13.0, macOS 10.15, *)
 extension CameraService: AVCapturePhotoCaptureDelegate {
-    func photoOutput(_ output: AVCapturePhotoOutput,
+    public func photoOutput(_ output: AVCapturePhotoOutput,
                     didFinishProcessingPhoto photo: AVCapturePhoto,
                     error: Error?) {
         if let imageData = photo.fileDataRepresentation() {

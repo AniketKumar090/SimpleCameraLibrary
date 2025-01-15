@@ -1,131 +1,242 @@
+import SwiftUI
 import AVFoundation
-import UIKit
 
-public class CameraView: UIView {
-    private var captureSession: AVCaptureSession?
-    private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var photoOutput: AVCapturePhotoOutput?
-    private var captureButton: UIButton!
-    private var onImageCaptured: ((UIImage) -> Void)?
+#if os(iOS)
+import UIKit
+typealias PlatformImage = UIImage
+#elseif os(macOS)
+import AppKit
+typealias PlatformImage = NSImage
+#endif
+
+// MARK: - Camera Service
+@available(iOS 13.0, macOS 10.15, *)
+class CameraService: NSObject, ObservableObject {
+    @Published var session = AVCaptureSession()
+    @Published var output = AVCapturePhotoOutput()
+    @Published var preview: AVCaptureVideoPreviewLayer?
+    @Published var recentImage: PlatformImage?
+    @Published var showingPhotoReview = false
     
-    public override init(frame: CGRect) {
-        super.init(frame: frame)
+    override init() {
+        super.init()
+        checkPermissions()
         setupCamera()
-        setupUI()
     }
     
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupCamera()
-        setupUI()
-    }
-    
-    private func setupCamera() {
-        captureSession = AVCaptureSession()
-        
-        guard let captureSession = captureSession,
-              let backCamera = AVCaptureDevice.default(for: .video) else {
+    func checkPermissions() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            return
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                if granted {
+                    DispatchQueue.main.async {
+                        self.setupCamera()
+                    }
+                }
+            }
+        default:
             return
         }
-        
+    }
+    
+    func setupCamera() {
         do {
-            let input = try AVCaptureDeviceInput(device: backCamera)
-            photoOutput = AVCapturePhotoOutput()
+            session.beginConfiguration()
             
-            if captureSession.canAddInput(input) &&
-               captureSession.canAddOutput(photoOutput!) {
-                captureSession.addInput(input)
-                captureSession.addOutput(photoOutput!)
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                     for: .video,
+                                                     position: .back) else { return }
+            
+            let input = try AVCaptureDeviceInput(device: device)
+            
+            if session.canAddInput(input) {
+                session.addInput(input)
             }
             
-            previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-            previewLayer?.videoGravity = .resizeAspectFill
-            layer.addSublayer(previewLayer!)
-            
-            DispatchQueue.global(qos: .background).async {
-                captureSession.startRunning()
+            if session.canAddOutput(output) {
+                session.addOutput(output)
             }
+            
+            session.commitConfiguration()
         } catch {
             print("Error setting up camera: \(error.localizedDescription)")
         }
     }
     
-    private func setupUI() {
-        // Setup capture button
-        captureButton = UIButton(frame: CGRect(x: 0, y: 0, width: 70, height: 70))
-        captureButton.backgroundColor = .white
-        captureButton.layer.cornerRadius = 35
-        captureButton.addTarget(self, action: #selector(captureButtonTapped), for: .touchUpInside)
-        addSubview(captureButton)
-        
-        // Add overlay (crosshair or grid)
-        let overlayView = createOverlay()
-        addSubview(overlayView)
-    }
-    
-    private func createOverlay() -> UIView {
-        let overlayView = UIView(frame: bounds)
-        overlayView.backgroundColor = .clear
-        
-        // Add grid lines
-        let lineColor = UIColor.white.withAlphaComponent(0.5)
-        let lineWidth: CGFloat = 1
-        
-        // Vertical lines
-        for i in 1...2 {
-            let x = bounds.width * CGFloat(i) / 3
-            let verticalLine = UIView(frame: CGRect(x: x, y: 0, width: lineWidth, height: bounds.height))
-            verticalLine.backgroundColor = lineColor
-            overlayView.addSubview(verticalLine)
-        }
-        
-        // Horizontal lines
-        for i in 1...2 {
-            let y = bounds.height * CGFloat(i) / 3
-            let horizontalLine = UIView(frame: CGRect(x: 0, y: y, width: bounds.width, height: lineWidth))
-            horizontalLine.backgroundColor = lineColor
-            overlayView.addSubview(horizontalLine)
-        }
-        
-        return overlayView
-    }
-    
-    public override func layoutSubviews() {
-        super.layoutSubviews()
-        previewLayer?.frame = bounds
-        captureButton.center = CGPoint(x: bounds.midX, y: bounds.maxY - 100)
-    }
-    
-    @objc private func captureButtonTapped() {
-        guard let photoOutput = photoOutput else { return }
-        
+    func capturePhoto() {
         let settings = AVCapturePhotoSettings()
-        photoOutput.capturePhoto(with: settings, delegate: self)
-    }
-    
-    private func showConfirmationDialog(with image: UIImage) {
-        let alertController = UIAlertController(title: "Photo Captured",
-                                              message: "Would you like to keep this photo?",
-                                              preferredStyle: .alert)
-        
-        let saveAction = UIAlertAction(title: "✓", style: .default) { [weak self] _ in
-            self?.saveImage(image)
-        }
-        
-        let retakeAction = UIAlertAction(title: "✗", style: .destructive) { _ in
-            // Photo will be discarded automatically
-        }
-        
-        alertController.addAction(saveAction)
-        alertController.addAction(retakeAction)
-        
-        if let topViewController = UIApplication.shared.keyWindow?.rootViewController {
-            topViewController.present(alertController, animated: true)
-        }
-    }
-    
-    private func saveImage(_ image: UIImage) {
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        output.capturePhoto(with: settings, delegate: self)
     }
 }
 
+// MARK: - Photo Capture Delegate
+@available(iOS 13.0, macOS 10.15, *)
+extension CameraService: AVCapturePhotoCaptureDelegate {
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                    didFinishProcessingPhoto photo: AVCapturePhoto,
+                    error: Error?) {
+        if let imageData = photo.fileDataRepresentation() {
+            #if os(iOS)
+            if let image = UIImage(data: imageData) {
+                DispatchQueue.main.async {
+                    self.recentImage = image
+                    self.showingPhotoReview = true
+                }
+            }
+            #elseif os(macOS)
+            if let image = NSImage(data: imageData) {
+                DispatchQueue.main.async {
+                    self.recentImage = image
+                    self.showingPhotoReview = true
+                }
+            }
+            #endif
+        }
+    }
+}
+
+// MARK: - Camera Preview View
+#if os(iOS)
+@available(iOS 13.0, *)
+struct CameraPreviewView: UIViewRepresentable {
+    @ObservedObject var cameraService: CameraService
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: UIScreen.main.bounds)
+        
+        cameraService.preview = AVCaptureVideoPreviewLayer(session: cameraService.session)
+        cameraService.preview?.frame = view.frame
+        cameraService.preview?.videoGravity = .resizeAspectFill
+        
+        view.layer.addSublayer(cameraService.preview!)
+        cameraService.session.startRunning()
+        
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+#elseif os(macOS)
+@available(macOS 10.15, *)
+struct CameraPreviewView: NSViewRepresentable {
+    @ObservedObject var cameraService: CameraService
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        
+        cameraService.preview = AVCaptureVideoPreviewLayer(session: cameraService.session)
+        cameraService.preview?.frame = view.frame
+        cameraService.preview?.videoGravity = .resizeAspectFill
+        
+        view.layer = cameraService.preview
+        cameraService.session.startRunning()
+        
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+#endif
+
+// MARK: - Camera View
+@available(iOS 13.0, macOS 11.0, *)
+struct CameraView: View {
+    @StateObject private var cameraService = CameraService()
+    
+    var body: some View {
+        ZStack {
+            CameraPreviewView(cameraService: cameraService)
+            
+            VStack {
+                Spacer()
+                
+                Button(action: {
+                    cameraService.capturePhoto()
+                }) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 70, height: 70)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.black, lineWidth: 2)
+                        )
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .sheet(isPresented: $cameraService.showingPhotoReview) {
+            if let image = cameraService.recentImage {
+                PhotoReviewView(image: image, isPresented: $cameraService.showingPhotoReview)
+            }
+        }
+    }
+}
+
+// MARK: - Photo Review View
+@available(iOS 13.0, macOS 11.0, *)
+struct PhotoReviewView: View {
+    let image: PlatformImage
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack {
+            #if os(iOS)
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+            #elseif os(macOS)
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+            #endif
+            
+            HStack(spacing: 50) {
+                Button(action: {
+                    isPresented = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .resizable()
+                        .frame(width: 50, height: 50)
+                        .foregroundColor(.red)
+                }
+                
+                Button(action: {
+                    #if os(iOS)
+                    UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                    #elseif os(macOS)
+                    // Implement macOS photo saving logic here
+                    let savePanel = NSSavePanel()
+                    savePanel.allowedContentTypes = [.jpeg, .png]
+                    savePanel.canCreateDirectories = true
+                    savePanel.isExtensionHidden = false
+                    savePanel.title = "Save Photo"
+                    savePanel.message = "Choose a location to save your photo"
+                    savePanel.nameFieldLabel = "Photo Name:"
+                    
+                    if let window = NSApp.windows.first {
+                        savePanel.beginSheetModal(for: window) { response in
+                            if response == .OK {
+                                if let url = savePanel.url,
+                                   let imageData = image.tiffRepresentation,
+                                   let bitmap = NSBitmapImageRep(data: imageData),
+                                   let data = bitmap.representation(using: .jpeg, properties: [:]) {
+                                    try? data.write(to: url)
+                                }
+                            }
+                        }
+                    }
+                    #endif
+                    isPresented = false
+                }) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .resizable()
+                        .frame(width: 50, height: 50)
+                        .foregroundColor(.green)
+                }
+            }
+            .padding(.bottom, 30)
+        }
+    }
+}

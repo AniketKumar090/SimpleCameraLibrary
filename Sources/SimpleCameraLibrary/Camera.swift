@@ -260,6 +260,11 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
+    // Mark the initializer as public
+    public init(scannerService: ProductScannerService) {
+        self.scannerService = scannerService
+    }
+    
     public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
         
@@ -285,6 +290,11 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
 public struct BarcodeScannerPreviewView: NSViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
+    // Mark the initializer as public
+    public init(scannerService: ProductScannerService) {
+        self.scannerService = scannerService
+    }
+    
     public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         
@@ -301,7 +311,6 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {}
 }
 #endif
-
 // MARK: - Example Usage in SwiftUI
 //@available(iOS 13.0, macOS 13.0, *)
 //struct ContentView: View {

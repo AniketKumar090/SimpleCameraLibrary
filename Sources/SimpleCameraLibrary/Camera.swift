@@ -21,6 +21,7 @@ struct OpenFoodFactsProduct: Codable {
     let quantity: String? // Likely contains volume information
     let image_url: String?
 }
+
 // MARK: - Product Information Model
 public struct ProductInfo: Codable, Identifiable {
     public let id: String // Barcode as unique identifier
@@ -166,7 +167,6 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
     }
 
-    
     // MARK: - Camera Permissions
     private func checkPermissions() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -259,16 +259,18 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
 @available(iOS 13.0, *)
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
-    public init(scannerService: ProductScannerService) {
-        self.scannerService = scannerService
-    }
-        
+    
     public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
         
         scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
-        scannerService.preview?.frame = view.frame
-        scannerService.preview?.videoGravity = .resizeAspectFill
+        scannerService.preview?.frame = view.bounds
+        scannerService.preview?.videoGravity = .resizeAspect // Ensure no zoom
+        
+        // Set the preview layer's orientation to match the device's orientation
+        if let connection = scannerService.preview?.connection {
+            connection.videoOrientation = .portrait
+        }
         
         view.layer.addSublayer(scannerService.preview!)
         scannerService.startScanning()
@@ -282,16 +284,13 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
 @available(macOS 13.0, *)
 public struct BarcodeScannerPreviewView: NSViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
-    public init(scannerService: ProductScannerService) {
-        self.scannerService = scannerService
-    }
     
     public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         
         scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
-        scannerService.preview?.frame = view.frame
-        scannerService.preview?.videoGravity = .resizeAspectFill
+        scannerService.preview?.frame = view.bounds
+        scannerService.preview?.videoGravity = .resizeAspect // Ensure no zoom
         
         view.layer = scannerService.preview
         scannerService.startScanning()
@@ -303,3 +302,37 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
 }
 #endif
 
+// MARK: - Example Usage in SwiftUI
+//@available(iOS 13.0, macOS 13.0, *)
+//struct ContentView: View {
+//    @StateObject private var scannerService = ProductScannerService()
+//    
+//    var body: some View {
+//        VStack {
+//            if scannerService.showingScanResult {
+//                if let productInfo = scannerService.productInfo {
+//                    Text("Product: \(productInfo.name)")
+//                    Text("Volume: \(productInfo.volume)")
+//                    if let imageUrl = productInfo.imageUrl, let url = URL(string: imageUrl) {
+//                        AsyncImage(url: url) { image in
+//                            image.resizable()
+//                        } placeholder: {
+//                            ProgressView()
+//                        }
+//                        .frame(width: 100, height: 100)
+//                    }
+//                } else if let errorMessage = scannerService.errorMessage {
+//                    Text("Error: \(errorMessage)")
+//                        .foregroundColor(.red)
+//                }
+//                Button("Scan Again") {
+//                    scannerService.showingScanResult = false
+//                    scannerService.startScanning()
+//                }
+//            } else {
+//                BarcodeScannerPreviewView(scannerService: scannerService)
+//                    .edgesIgnoringSafeArea(.all)
+//            }
+//        }
+//    }
+//}

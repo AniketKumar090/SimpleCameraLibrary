@@ -345,25 +345,11 @@ public struct ProductScannerView: View {
                         // Product Details
                         Text(product.name)
                             .font(.title)
+                        Text(product.volume)
+                            .font(.title)
+                        AsyncImage(url: URL(string: product.imageUrl ?? "nil")!)
+                               
                         
-                        // Ingredients Section
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Text("Ingredients")
-                                    .font(.headline)
-                                Spacer()
-                                Button(action: {
-                                    showFullIngredients.toggle()
-                                }) {
-                                    Text(showFullIngredients ? "Collapse" : "Expand")
-                                }
-                            }
-                            
-                            
-                            
-                            
-                           
-                        }
                     }else {
                         Text("No product information found")
                             .foregroundColor(.red)
@@ -379,13 +365,5 @@ public struct ProductScannerView: View {
                 .padding()
             }
         }
-    }
-}
-@available(iOS 13.0, macOS 13.0, *)
-extension ProductScannerService {
-    private func logProductInfo(_ product: ProductInfo) {
-        print("Product Name: \(product.name)")
-        print("Brand: \(String(describing: product.imageUrl))")
-        print("Volume: \(product.volume) ml")
     }
 }

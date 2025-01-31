@@ -9,49 +9,24 @@ import AppKit
 public typealias PlatformImage = NSImage
 #endif
 
-// MARK: - USDA FoodData Central Response Models
-struct USDAResponse: Codable {
-    let foods: [USDAFood]?
+// MARK: - Simplified API Response Models
+struct OpenFoodFactsResponse: Codable {
+    let product: OpenFoodFactsProduct?
+    let status: Int?
+    let status_verbose: String?
 }
 
-struct USDAFood: Codable {
-    let fdcId: Int? // Unique identifier for the food
-    let description: String? // Product name
-    let brandOwner: String? // Brand name
-    let ingredients: String? // Ingredients list
-    let foodNutrients: [FoodNutrient]? // Nutritional information
-    let servingSize: Double? // Serving size in grams
-    let servingSizeUnit: String? // Serving size unit (e.g., "g")
-    let brandName: String? // Brand name (alternative)
-    let packageWeight: String? // Package weight
-    let foodCategory: String? // Food category (e.g., "Dairy")
-}
-
-struct FoodNutrient: Codable {
-    let nutrientId: Int? // Nutrient ID
-    let nutrientName: String? // Nutrient name (e.g., "Energy")
-    let unitName: String? // Unit (e.g., "kcal")
-    let value: Double? // Nutrient value
+struct OpenFoodFactsProduct: Codable {
+    let product_name: String?
+    let quantity: String? // Likely contains volume information
+    let image_url: String?
 }
 // MARK: - Product Information Model
 public struct ProductInfo: Codable, Identifiable {
-    public let id: String // FDC ID as unique identifier
+    public let id: String // Barcode as unique identifier
     public let name: String
-    public let brand: String
-    public let servingSize: String
-    public let ingredients: [String]
-    public let nutritionalInfo: NutritionalInfo
-    public let foodCategory: String?
-    public let packageWeight: String?
-    
-    public struct NutritionalInfo: Codable {
-        public let calories: Double
-        public let protein: Double
-        public let fat: Double
-        public let carbohydrates: Double
-        public let sugars: Double
-        public let sodium: Double
-    }
+    public let volume: String // Volume as a string (e.g., "500ml")
+    public let imageUrl: String?
 }
 
 // MARK: - Barcode Scanning and Product Service
@@ -65,9 +40,6 @@ public class ProductScannerService: NSObject, ObservableObject {
     @Published public var showingScanResult = false
     @Published public var isLoading = false
     @Published public var errorMessage: String?
-    
-    // USDA API Key
-    private let usdaAPIKey = "v90Fya8DSiqx0kIJZv06Lc7Gjgrh6Kja1yJMwHrB"
     
     // UserDefaults key for storing product information
     private let userDefaultsProductInfoKey = "SavedProductInformation"
@@ -98,7 +70,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - USDA FoodData Central Product Lookup
+    // MARK: - Open Food Facts Product Lookup
     public func lookupProductInformation(barcode: String) {
         // First, check if we have a cached result
         if let cachedProduct = cachedProductInfo[barcode] {
@@ -113,8 +85,8 @@ public class ProductScannerService: NSObject, ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        // USDA FoodData Central API Endpoint
-        let urlString = "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=\(usdaAPIKey)&query=\(barcode)"
+        // Open Food Facts API Endpoint
+        let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
         guard let url = URL(string: urlString) else {
             handleError("Invalid URL")
             return
@@ -137,31 +109,23 @@ public class ProductScannerService: NSObject, ObservableObject {
                 }
                 
                 do {
-                    let apiResponse = try JSONDecoder().decode(USDAResponse.self, from: data)
+                    let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
                     // Validate response and product
-                    guard let food = apiResponse.foods?.first else {
+                    guard let product = apiResponse.product else {
                         self.handleError("No product found")
                         return
                     }
                     
-                    // Convert USDA food to our ProductInfo
+                    // Extract volume from the quantity field
+                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    
+                    // Convert Open Food Facts product to our ProductInfo
                     let productInfo = ProductInfo(
-                        id: String(food.fdcId ?? 0),
-                        name: food.description ?? "Unknown Product",
-                        brand: food.brandOwner ?? food.brandName ?? "Unknown Brand",
-                        servingSize: "\(food.servingSize ?? 0) \(food.servingSizeUnit ?? "g")",
-                        ingredients: self.extractIngredients(from: food.ingredients),
-                        nutritionalInfo: ProductInfo.NutritionalInfo(
-                            calories: self.extractNutrientValue(food.foodNutrients, nutrientName: "Energy"),
-                            protein: self.extractNutrientValue(food.foodNutrients, nutrientName: "Protein"),
-                            fat: self.extractNutrientValue(food.foodNutrients, nutrientName: "Total lipid (fat)"),
-                            carbohydrates: self.extractNutrientValue(food.foodNutrients, nutrientName: "Carbohydrate, by difference"),
-                            sugars: self.extractNutrientValue(food.foodNutrients, nutrientName: "Sugars, total including NLEA"),
-                            sodium: self.extractNutrientValue(food.foodNutrients, nutrientName: "Sodium, Na")
-                        ),
-                        foodCategory: food.foodCategory,
-                        packageWeight: food.packageWeight
+                        id: barcode,
+                        name: product.product_name ?? "Unknown Product",
+                        volume: volume,
+                        imageUrl: product.image_url
                     )
                     
                     self.productInfo = productInfo
@@ -174,20 +138,25 @@ public class ProductScannerService: NSObject, ObservableObject {
         }.resume()
     }
     
-    // Helper method to extract nutrient value
-    private func extractNutrientValue(_ nutrients: [FoodNutrient]?, nutrientName: String) -> Double {
-        return nutrients?.first { $0.nutrientName == nutrientName }?.value ?? 0.0
-    }
-    
-    // Helper method to extract ingredients
-    private func extractIngredients(from ingredientsText: String?) -> [String] {
-        guard let ingredients = ingredientsText else { return [] }
+    // Helper method to extract volume from quantity string
+    private func extractVolume(from quantityString: String?) -> String? {
+        guard let quantity = quantityString else { return nil }
         
-        // Split ingredients by comma and clean up
-        return ingredients
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        // Extract numeric value followed by ml, cl, L, etc.
+        let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
+        let range = NSRange(location: 0, length: quantity.utf16.count)
+        
+        if let match = volumeRegex?.firstMatch(in: quantity, options: [], range: range) {
+            // Safely extract the captured group
+            let matchRange = match.range(at: 0)
+            
+            if matchRange.location != NSNotFound,
+               let matchedRange = Range(matchRange, in: quantity) {
+                return String(quantity[matchedRange])
+            }
+        }
+        
+        return nil
     }
     
     private func handleError(_ message: String) {
@@ -196,6 +165,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             self.showingScanResult = true
         }
     }
+
     
     // MARK: - Camera Permissions
     private func checkPermissions() {
@@ -375,9 +345,6 @@ public struct ProductScannerView: View {
                         // Product Details
                         Text(product.name)
                             .font(.title)
-                        Text("Brand: \(product.brand)")
-                            .font(.subheadline)
-                        Text("Volume: \(product.servingSize) ml")
                         
                         // Ingredients Section
                         VStack(alignment: .leading) {
@@ -392,50 +359,12 @@ public struct ProductScannerView: View {
                                 }
                             }
                             
-                            if showFullIngredients {
-                                ForEach(product.ingredients, id: \.self) { ingredient in
-                                    Text("• \(ingredient)")
-                                        .font(.caption)
-                                }
-                            } else {
-                                Text(product.ingredients.prefix(3).joined(separator: ", "))
-                                    .font(.caption)
-                                    .lineLimit(1)
-                            }
+                            
+                            
+                            
+                           
                         }
-                        .padding(.vertical)
-                        
-                        // Nutritional Information
-                        Text("Nutritional Information")
-                            .font(.headline)
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Text("Calories")
-                                Spacer()
-                                Text("\(product.nutritionalInfo.calories)")
-                            }
-                            HStack {
-                                Text("Total Sugar")
-                                Spacer()
-                                Text("\(String(format: "%.1f", product.nutritionalInfo.sugars))g")
-                            }
-                            HStack {
-                                Text("Protein")
-                                Spacer()
-                                Text("\(String(format: "%.1f", product.nutritionalInfo.protein))g")
-                            }
-                        }
-                        
-//                        // Allergens
-//                        if !product.nutritionalInfo.calories {
-//                            Text("Allergens")
-//                                .font(.headline)
-//                            ForEach(product.allergens, id: \.self) { allergen in
-//                                Text("• \(allergen)")
-//                                    .font(.caption)
-//                            }
-//                        }
-                    } else {
+                    }else {
                         Text("No product information found")
                             .foregroundColor(.red)
                     }
@@ -456,9 +385,7 @@ public struct ProductScannerView: View {
 extension ProductScannerService {
     private func logProductInfo(_ product: ProductInfo) {
         print("Product Name: \(product.name)")
-        print("Brand: \(product.brand)")
-        print("Volume: \(product.servingSize) ml")
-        print("Calories: \(product.nutritionalInfo.calories)")
-        print("Ingredients: \(product.ingredients)")
+        print("Brand: \(String(describing: product.imageUrl))")
+        print("Volume: \(product.volume) ml")
     }
 }

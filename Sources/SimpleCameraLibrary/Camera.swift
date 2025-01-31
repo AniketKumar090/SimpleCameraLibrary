@@ -9,6 +9,35 @@ import AppKit
 public typealias PlatformImage = NSImage
 #endif
 
+// MARK: - Open Food Facts Response Models
+struct OpenFoodFactsResponse: Codable {
+    let product: OpenFoodFactsProduct?
+    let status: Int?
+    let status_verbose: String?
+}
+
+struct OpenFoodFactsProduct: Codable {
+    let product_name: String?
+    let brands: String?
+    let quantity: String?
+    let ingredients_text: String?
+    let nutriments: Nutriments?
+    let allergens_tags: [String]?
+    let image_url: String?
+    let additives_tags: [String]?
+    let packaging_tags: [String]?
+}
+
+struct Nutriments: Codable {
+    let energy_value: String?
+    let energy_kcal: Double?
+    let sugars: Double?
+    let proteins: Double?
+    let fat: Double?
+    let sodium: Double?
+    let carbohydrates: Double?
+}
+
 // MARK: - Product Information Model
 public struct ProductInfo: Codable, Identifiable {
     public let id: String // Barcode as unique identifier
@@ -19,6 +48,8 @@ public struct ProductInfo: Codable, Identifiable {
     public let nutritionalInfo: NutritionalInfo
     public let allergens: [String]
     public let imageUrl: String?
+    public let additives: [String]
+    public let packaging: [String]
     
     public struct NutritionalInfo: Codable {
         public let calories: Int
@@ -26,6 +57,7 @@ public struct ProductInfo: Codable, Identifiable {
         public let protein: Double
         public let totalFat: Double
         public let sodium: Double
+        public let carbohydrates: Double
     }
 }
 
@@ -70,7 +102,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Barcode Lookup Method
+    // MARK: - Open Food Facts Product Lookup
     public func lookupProductInformation(barcode: String) {
         // First, check if we have a cached result
         if let cachedProduct = cachedProductInfo[barcode] {
@@ -85,8 +117,9 @@ public class ProductScannerService: NSObject, ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        // Mock API endpoint - replace with your actual product information API
-        guard let url = URL(string: "https://product-api.example.com/product?barcode=\(barcode)") else {
+        // Open Food Facts API Endpoint
+        let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
+        guard let url = URL(string: urlString) else {
             handleError("Invalid URL")
             return
         }
@@ -108,15 +141,78 @@ public class ProductScannerService: NSObject, ObservableObject {
                 }
                 
                 do {
-                    let product = try JSONDecoder().decode(ProductInfo.self, from: data)
-                    self.productInfo = product
-                    self.saveProductInfo(product)
+                    let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
+                    
+                    // Validate response and product
+                    guard let product = apiResponse.product else {
+                        self.handleError("No product found")
+                        return
+                    }
+                    
+                    // Convert Open Food Facts product to our ProductInfo
+                    let productInfo = ProductInfo(
+                        id: barcode,
+                        name: product.product_name ?? "Unknown Product",
+                        brand: product.brands ?? "Unknown Brand",
+                        volume: self.extractVolume(from: product.quantity),
+                        ingredients: self.extractIngredients(from: product.ingredients_text),
+                        nutritionalInfo: ProductInfo.NutritionalInfo(
+                            calories: Int(product.nutriments?.energy_kcal ?? 0),
+                            totalSugar: product.nutriments?.sugars ?? 0.0,
+                            protein: product.nutriments?.proteins ?? 0.0,
+                            totalFat: product.nutriments?.fat ?? 0.0,
+                            sodium: product.nutriments?.sodium ?? 0.0,
+                            carbohydrates: product.nutriments?.carbohydrates ?? 0.0
+                        ),
+                        allergens: product.allergens_tags?.compactMap { $0.replacingOccurrences(of: "en:", with: "") } ?? [],
+                        imageUrl: product.image_url,
+                        additives: product.additives_tags?.compactMap { $0.replacingOccurrences(of: "en:", with: "") } ?? [],
+                        packaging: product.packaging_tags ?? []
+                    )
+                    
+                    self.productInfo = productInfo
+                    self.saveProductInfo(productInfo)
                     self.showingScanResult = true
                 } catch {
                     self.handleError("Failed to decode product information: \(error.localizedDescription)")
                 }
             }
         }.resume()
+    }
+    
+    // Helper method to extract volume from quantity string
+    private func extractVolume(from quantityString: String?) -> Int {
+        guard let quantity = quantityString else { return 0 }
+        
+        // Extract numeric value followed by ml or cl
+        guard let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(?:ml|cl)", options: []) else {
+            return 0
+        }
+        
+        let range = NSRange(location: 0, length: quantity.utf16.count)
+        if let match = volumeRegex.firstMatch(in: quantity, options: [], range: range) {
+            // Safely extract the captured group
+            let matchRange = match.range(at: 1)
+            
+            if matchRange.location != NSNotFound,
+               let matchedRange = Range(matchRange, in: quantity) {
+                let volumeString = String(quantity[matchedRange])
+                return Int(volumeString) ?? 0
+            }
+        }
+        
+        return 0
+    }
+    
+    // Helper method to extract ingredients
+    private func extractIngredients(from ingredientsText: String?) -> [String] {
+        guard let ingredients = ingredientsText else { return [] }
+        
+        // Split ingredients by comma and clean up
+        return ingredients
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
     
     private func handleError(_ message: String) {
@@ -379,5 +475,15 @@ public struct ProductScannerView: View {
                 .padding()
             }
         }
+    }
+}
+@available(iOS 13.0, macOS 13.0, *)
+extension ProductScannerService {
+    private func logProductInfo(_ product: ProductInfo) {
+        print("Product Name: \(product.name)")
+        print("Brand: \(product.brand)")
+        print("Volume: \(product.volume) ml")
+        print("Calories: \(product.nutritionalInfo.calories)")
+        print("Ingredients: \(product.ingredients)")
     }
 }

@@ -269,8 +269,8 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
         let view = UIView(frame: UIScreen.main.bounds)
         
         scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
-        scannerService.preview?.frame = view.frame
-        scannerService.preview?.videoGravity = .resizeAspect // Ensure no zoom
+        scannerService.preview?.frame = view.bounds
+        scannerService.preview?.videoGravity = .resizeAspectFill // Ensure no zoom
         
         // Set the preview layer's orientation to match the device's orientation
         if let connection = scannerService.preview?.connection {

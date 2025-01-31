@@ -23,11 +23,19 @@ struct OpenFoodFactsProduct: Codable {
 }
 
 // MARK: - Product Information Model
-public struct ProductInfo: Codable, Identifiable {
-    public let id: String // Barcode as unique identifier
+public struct ProductInfo: Codable, Identifiable, Equatable {
+    public let id: String
     public let name: String
-    public let volume: String // Volume as a string (e.g., "500ml")
+    public let volume: String
     public let imageUrl: String?
+    
+    // Implement Equatable
+    public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.name == rhs.name &&
+               lhs.volume == rhs.volume &&
+               lhs.imageUrl == rhs.imageUrl
+    }
 }
 
 // MARK: - Barcode Scanning and Product Service

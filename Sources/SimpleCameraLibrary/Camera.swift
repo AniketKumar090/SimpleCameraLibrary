@@ -18,23 +18,26 @@ struct OpenFoodFactsResponse: Codable {
 
 struct OpenFoodFactsProduct: Codable {
     let product_name: String?
-    let quantity: String? // Likely contains volume information
+    let quantity: String?
     let image_url: String?
+    let categories: String?
+    let generic_name: String?
 }
 
-// MARK: - Product Information Model
+// Update ProductInfo to include drink category string
 public struct ProductInfo: Codable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let volume: String
     public let imageUrl: String?
+    public let drinkCategory: String? // Add this field
     
-    // Implement Equatable
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
                lhs.name == rhs.name &&
                lhs.volume == rhs.volume &&
-               lhs.imageUrl == rhs.imageUrl
+               lhs.imageUrl == rhs.imageUrl &&
+               lhs.drinkCategory == rhs.drinkCategory
     }
 }
 
@@ -78,7 +81,22 @@ public class ProductScannerService: NSObject, ObservableObject {
             UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
         }
     }
-    
+    public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
+        let categories = categories?.lowercased() ?? ""
+        let genericName = genericName?.lowercased() ?? ""
+        let combinedText = categories + " " + genericName
+        
+        if combinedText.contains("water") || combinedText.contains("eau") {
+            return "water"
+        } else if combinedText.contains("tea") || combinedText.contains("thé") {
+            return "tea"
+        } else if combinedText.contains("coffee") || combinedText.contains("café") {
+            return "coffee"
+        } else if combinedText.contains("soda") || combinedText.contains("soft drink") {
+            return "soda"
+        }
+        return nil
+    }
     // MARK: - Open Food Facts Product Lookup
     public func lookupProductInformation(barcode: String) {
         // First, check if we have a cached result
@@ -128,13 +146,18 @@ public class ProductScannerService: NSObject, ObservableObject {
                     
                     // Extract volume from the quantity field
                     let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    let drinkCategory = self.determineDrinkCategory(
+                                        categories: product.categories,
+                                        genericName: product.generic_name
+                                    )
                     
                     // Convert Open Food Facts product to our ProductInfo
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
-                        imageUrl: product.image_url
+                        imageUrl: product.image_url,
+                        drinkCategory: drinkCategory
                     )
                     
                     self.productInfo = productInfo

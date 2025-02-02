@@ -42,15 +42,17 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
     public let volume: String
     public let imageUrl: String?
     public let keywords: [String]?
-    public let drinkCategory: String? // Add this field
-    
+    public let drinkCategory: String?
+    public let serving_size: String? // Add this field
+
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
                lhs.name == rhs.name &&
                lhs.volume == rhs.volume &&
                lhs.imageUrl == rhs.imageUrl &&
                lhs.keywords == rhs.keywords &&
-               lhs.drinkCategory == rhs.drinkCategory
+               lhs.drinkCategory == rhs.drinkCategory &&
+               lhs.serving_size == rhs.serving_size
     }
 }
 
@@ -157,11 +159,11 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
             return nil
         }
-    private func calculateWaterEstimate(
+    public func calculateWaterEstimate(
         quantity: String?,
         servingSize: String?,
         waterPercentage: Double?
-    ) -> String? {
+    ) -> Double? {
         // If water percentage is not provided, return nil
         guard let waterPercentage = waterPercentage else { return nil }
 
@@ -184,7 +186,7 @@ public class ProductScannerService: NSObject, ObservableObject {
            let volumeValue = Double(baseVolume[matchRange]) {
             // Calculate water content in milliliters (assuming percentage is out of 100)
             let waterContent = (volumeValue * waterPercentage) / 100.0
-            return String(format: "%.2f ml", waterContent)
+            return waterContent
         }
 
         return nil
@@ -256,12 +258,13 @@ public class ProductScannerService: NSObject, ObservableObject {
                         volume: volume,
                         imageUrl: product.image_url,
                         keywords: product._keywords,
-                        drinkCategory: drinkCategory
+                        drinkCategory: drinkCategory,
+                        serving_size: product.serving_size
                     )
                     print("Created ProductInfo:")
                     print("- Keywords: \(productInfo.keywords ?? [])")
                     print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
-                    print("- Water Estimate: \(waterEstimate ?? "Not Available")")
+                    print("- Water Estimate: \(String(describing: waterEstimate ?? 0.0))")
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true

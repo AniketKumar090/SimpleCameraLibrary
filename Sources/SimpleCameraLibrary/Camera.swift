@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+
 #if os(iOS)
 import UIKit
 public typealias PlatformImage = UIImage
@@ -15,20 +16,13 @@ struct OpenFoodFactsResponse: Codable {
     let status_verbose: String?
 }
 
-struct OpenFoodFactsIngredient: Codable {
-    let id: String
-    let percent_estimate: Double?
-}
-
 struct OpenFoodFactsProduct: Codable {
     let product_name: String?
     let quantity: String?
     let image_url: String?
     let categories: String?
     let generic_name: String?
-    let _keywords: [String]?
-    let ingredients: [OpenFoodFactsIngredient]?
-    let serving_size: String?
+    let _keywords: [String]?  // Make sure this matches the API response exactly
     
     private enum CodingKeys: String, CodingKey {
         case product_name
@@ -36,34 +30,28 @@ struct OpenFoodFactsProduct: Codable {
         case image_url
         case categories
         case generic_name
-        case _keywords = "_keywords"
-        case ingredients
-        case serving_size
+        case _keywords = "_keywords"  // Explicitly map to match API response
     }
 }
-
-// Update ProductInfo to include drink category string and estimated water content
+// Update ProductInfo to include drink category string
 public struct ProductInfo: Codable, Identifiable, Equatable {
     public let id: String
     public let name: String
-    public let volume: String // Keep this as non-optional
+    public let volume: String
     public let imageUrl: String?
     public let keywords: [String]?
     public let drinkCategory: String? // Add this field
-    public let servingSize: String? // Optional serving size
-    public let waterPercentage: Double? // Optional water percentage
-
+    
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
                lhs.name == rhs.name &&
                lhs.volume == rhs.volume &&
                lhs.imageUrl == rhs.imageUrl &&
                lhs.keywords == rhs.keywords &&
-               lhs.drinkCategory == rhs.drinkCategory &&
-               lhs.servingSize == rhs.servingSize &&
-               lhs.waterPercentage == rhs.waterPercentage
+               lhs.drinkCategory == rhs.drinkCategory
     }
 }
+
 // MARK: - Barcode Scanning and Product Service
 @available(iOS 13.0, macOS 13.0, *)
 public class ProductScannerService: NSObject, ObservableObject {
@@ -89,6 +77,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         setupBarcodeScanner()
     }
     
+
     public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
         let categories = categories?.lowercased() ?? ""
         let genericName = genericName?.lowercased() ?? ""
@@ -105,54 +94,53 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
         return nil
     }
-    
     // MARK: - Open Food Facts Product Lookup
     public func clearCache() {
-        cachedProductInfo.removeAll()
-        UserDefaults.standard.removeObject(forKey: userDefaultsProductInfoKey)
-    }
-    
-    private func loadCachedProductInfo() {
-        if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey) {
-            do {
-                let decoder = JSONDecoder()
-                cachedProductInfo = try decoder.decode([String: ProductInfo].self, from: savedData)
-                print("Loaded cache with \(cachedProductInfo.count) items")
-                
-                // Debug: Print cached items
-                for (barcode, info) in cachedProductInfo {
-                    print("Cached item:")
-                    print("- Barcode: \(barcode)")
-                    print("- Name: \(info.name)")
-                    print("- Keywords: \(info.keywords ?? [])")
-                    print("- DrinkCategory: \(info.drinkCategory ?? "nil")")
+            cachedProductInfo.removeAll()
+            UserDefaults.standard.removeObject(forKey: userDefaultsProductInfoKey)
+        }
+        
+        private func loadCachedProductInfo() {
+            if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey) {
+                do {
+                    let decoder = JSONDecoder()
+                    cachedProductInfo = try decoder.decode([String: ProductInfo].self, from: savedData)
+                    print("Loaded cache with \(cachedProductInfo.count) items")
+                    
+                    // Debug: Print cached items
+                    for (barcode, info) in cachedProductInfo {
+                        print("Cached item:")
+                        print("- Barcode: \(barcode)")
+                        print("- Name: \(info.name)")
+                        print("- Keywords: \(info.keywords ?? [])")
+                        print("- DrinkCategory: \(info.drinkCategory ?? "nil")")
+                    }
+                } catch {
+                    print("Error loading cache: \(error)")
+                    // If there's an error loading the cache, clear it
+                    clearCache()
                 }
-            } catch {
-                print("Error loading cache: \(error)")
-                // If there's an error loading the cache, clear it
-                clearCache()
             }
         }
-    }
-    
-    private func saveProductInfo(_ product: ProductInfo) {
-        print("Saving product to cache:")
-        print("- Name: \(product.name)")
-        print("- Keywords: \(product.keywords ?? [])")
-        print("- DrinkCategory: \(product.drinkCategory ?? "nil")")
         
-        cachedProductInfo[product.id] = product
-        
-        do {
-            let encoder = JSONEncoder()
-            let encoded = try encoder.encode(cachedProductInfo)
-            UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
-            print("Successfully saved to cache")
-        } catch {
-            print("Error saving to cache: \(error)")
+        private func saveProductInfo(_ product: ProductInfo) {
+            print("Saving product to cache:")
+            print("- Name: \(product.name)")
+            print("- Keywords: \(product.keywords ?? [])")
+            print("- DrinkCategory: \(product.drinkCategory ?? "nil")")
+            
+            cachedProductInfo[product.id] = product
+            
+            do {
+                let encoder = JSONEncoder()
+                let encoded = try encoder.encode(cachedProductInfo)
+                UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
+                print("Successfully saved to cache")
+            } catch {
+                print("Error saving to cache: \(error)")
+            }
         }
-    }
-    
+        
     public func lookupProductInformation(barcode: String) {
         isLoading = true
         errorMessage = nil
@@ -164,6 +152,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
         
         print("Making API call to: \(urlString)")
+        
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
             
@@ -182,6 +171,11 @@ public class ProductScannerService: NSObject, ObservableObject {
                     return
                 }
                 
+                // Print raw response for debugging
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("Raw API Response: \(jsonString)")
+                }
+                
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
@@ -191,38 +185,28 @@ public class ProductScannerService: NSObject, ObservableObject {
                         return
                     }
                     
-                    // Extract serving size (if available)
-                    let servingSize = product.serving_size
+                    print("API Response Product:")
+                    print("- Name: \(product.product_name ?? "nil")")
+                    print("- Keywords: \(product._keywords ?? [])")
                     
-                    // Extract water percentage (if available)
-                    let waterPercentage = self.extractWaterPercentage(from: product.ingredients)
-                    
-                    // Extract volume using the original logic
                     let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
-                    
-                    // Determine drink category
                     let drinkCategory = self.determineDrinkCategory(
                         categories: product.categories,
                         genericName: product.generic_name
                     )
                     
-                    // Create ProductInfo with optional servingSize and waterPercentage
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
                         imageUrl: product.image_url,
                         keywords: product._keywords,
-                        drinkCategory: drinkCategory,
-                        servingSize: servingSize, // Add serving size
-                        waterPercentage: waterPercentage // Add water percentage
+                        drinkCategory: drinkCategory
                     )
                     
                     print("Created ProductInfo:")
-                    print("- Name: \(productInfo.name)")
-                    print("- Volume: \(productInfo.volume)")
-                    print("- Serving Size: \(productInfo.servingSize ?? "nil")")
-                    print("- Water Percentage: \(productInfo.waterPercentage ?? 0)%")
+                    print("- Keywords: \(productInfo.keywords ?? [])")
+                    print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true
@@ -234,51 +218,34 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
-
-    // Helper method to extract water percentage
-    private func extractWaterPercentage(from ingredients: [OpenFoodFactsIngredient]?) -> Double? {
-        guard let ingredients = ingredients else { return nil }
+    private func extractKeywords(from categories: String?) -> [String]? {
+        guard let categories = categories else { return nil }
         
-        for ingredient in ingredients {
-            if ingredient.id == "en:carbonated-water" || ingredient.id == "en:water" {
-                return ingredient.percent_estimate
-            }
-        }
-        return nil
+        // Split categories by commas and clean up each keyword
+        return categories
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
+    // Helper method to extract volume from quantity string
     private func extractVolume(from quantityString: String?) -> String? {
         guard let quantity = quantityString else { return nil }
         
         // Extract numeric value followed by ml, cl, L, etc.
         let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
         let range = NSRange(location: 0, length: quantity.utf16.count)
+        
         if let match = volumeRegex?.firstMatch(in: quantity, options: [], range: range) {
+            // Safely extract the captured group
             let matchRange = match.range(at: 0)
+            
             if matchRange.location != NSNotFound,
                let matchedRange = Range(matchRange, in: quantity) {
                 return String(quantity[matchedRange])
             }
         }
-        return nil
-    }
-    private func extractServingSize(from servingSizeText: String?) -> Double? {
-        guard let text = servingSizeText else { return nil }
         
-        // Extract numeric value from "200 ml" or similar formats
-        let pattern = "\\d+\\.?\\d*"
-        let regex = try? NSRegularExpression(pattern: pattern, options: [])
-        if let match = regex?.firstMatch(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count)) {
-            let range = match.range
-            if let numericRange = Range(range, in: text) {
-                return Double(text[numericRange])
-            }
-        }
         return nil
-    }
-    
-    
-    private func calculateWaterContent(percentage: Double, servingSize: Double) -> Double {
-        return (percentage / 100.0) * servingSize
     }
     
     private func handleError(_ message: String) {
@@ -287,7 +254,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             self.showingScanResult = true
         }
     }
-    
+
     // MARK: - Camera Permissions
     private func checkPermissions() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -310,16 +277,21 @@ public class ProductScannerService: NSObject, ObservableObject {
     private func setupBarcodeScanner() {
         do {
             session.beginConfiguration()
+            
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                       for: .video,
-                                                       position: .back) else { return }
+                                                     for: .video,
+                                                     position: .back) else { return }
+            
             let input = try AVCaptureDeviceInput(device: device)
+            
             if session.canAddInput(input) {
                 session.addInput(input)
             }
+            
             metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
             if session.canAddOutput(metadataOutput) {
                 session.addOutput(metadataOutput)
+                
                 // Set barcode types you want to scan
                 metadataOutput.metadataObjectTypes = [
                     .ean8,
@@ -331,6 +303,7 @@ public class ProductScannerService: NSObject, ObservableObject {
                     .upce
                 ]
             }
+            
             session.commitConfiguration()
         } catch {
             print("Error setting up barcode scanner: \(error.localizedDescription)")
@@ -355,10 +328,11 @@ public class ProductScannerService: NSObject, ObservableObject {
 @available(iOS 13.0, macOS 13.0, *)
 extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
     public func metadataOutput(_ output: AVCaptureMetadataOutput,
-                               didOutput metadataObjects: [AVMetadataObject],
-                               from connection: AVCaptureConnection) {
+                        didOutput metadataObjects: [AVMetadataObject],
+                        from connection: AVCaptureConnection) {
         if let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject {
             let barcode = metadataObject.stringValue ?? ""
+            
             DispatchQueue.main.async {
                 self.scannedBarcode = barcode
                 self.lookupProductInformation(barcode: barcode)
@@ -374,21 +348,26 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
+    // Mark the initializer as public
     public init(scannerService: ProductScannerService) {
         self.scannerService = scannerService
     }
     
     public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
+        
         scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
         scannerService.preview?.frame = view.bounds
         scannerService.preview?.videoGravity = .resizeAspectFill // Ensure no zoom
+        
         // Set the preview layer's orientation to match the device's orientation
         if let connection = scannerService.preview?.connection {
             connection.videoOrientation = .portrait
         }
+        
         view.layer.addSublayer(scannerService.preview!)
         scannerService.startScanning()
+        
         return view
     }
     
@@ -399,17 +378,21 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
 public struct BarcodeScannerPreviewView: NSViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
+    // Mark the initializer as public
     public init(scannerService: ProductScannerService) {
         self.scannerService = scannerService
     }
     
     public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
+        
         scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
         scannerService.preview?.frame = view.bounds
         scannerService.preview?.videoGravity = .resizeAspect // Ensure no zoom
+        
         view.layer = scannerService.preview
         scannerService.startScanning()
+        
         return view
     }
     

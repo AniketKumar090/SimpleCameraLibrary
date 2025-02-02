@@ -419,7 +419,7 @@ public enum VolumeUnit: String {
     case L = "L"
     case cl = "cl"
     
-    func toMilliliters(_ value: Double) -> Double {
+    public func toMilliliters(_ value: Double) -> Double {
         switch self {
         case .ml:
             return value

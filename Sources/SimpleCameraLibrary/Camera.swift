@@ -140,29 +140,37 @@ public class ProductScannerService: NSObject, ObservableObject {
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
-                    // Validate response and product
                     guard let product = apiResponse.product else {
                         self.handleError("No product found")
                         return
                     }
                     
-                    // Extract volume from the quantity field
-                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
-                    let drinkCategory = self.determineDrinkCategory(
-                                        categories: product.categories,
-                                        genericName: product.generic_name
-                                    )
+                    // Debug print
+                    print("Raw categories from API: \(product.categories ?? "nil")")
                     
-                    // Convert Open Food Facts product to our ProductInfo
+                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    let keywords = self.extractKeywords(from: product.categories)
+                    
+                    // Debug print
+                    print("Extracted keywords: \(keywords ?? [])")
+                    
+                    let drinkCategory = self.determineDrinkCategory(
+                        categories: product.categories,
+                        genericName: product.generic_name
+                    )
+                    
+                    // Create ProductInfo with debug print
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
                         imageUrl: product.image_url,
-                        keywords: self.extractKeywords(from: product.categories), // Add keywords parameter
+                        keywords: keywords,
                         drinkCategory: drinkCategory
                     )
-
+                    
+                    print("Created ProductInfo with keywords: \(productInfo.keywords ?? [])")
+                    
                     self.productInfo = productInfo
                     self.saveProductInfo(productInfo)
                     self.showingScanResult = true

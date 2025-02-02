@@ -22,7 +22,8 @@ struct OpenFoodFactsProduct: Codable {
     let image_url: String?
     let categories: String?
     let generic_name: String?
-    let _keywords: [String]?  // Make sure this matches the API response exactly
+    let _keywords: [String]? // Make sure this matches the API response exactly
+    let serving_size: String? // Add this field to capture serving size
     
     private enum CodingKeys: String, CodingKey {
         case product_name
@@ -30,7 +31,8 @@ struct OpenFoodFactsProduct: Codable {
         case image_url
         case categories
         case generic_name
-        case _keywords = "_keywords"  // Explicitly map to match API response
+        case _keywords = "_keywords"
+        case serving_size // Map to the "serving_size" field in the API response
     }
 }
 // Update ProductInfo to include drink category string
@@ -140,61 +142,114 @@ public class ProductScannerService: NSObject, ObservableObject {
                 print("Error saving to cache: \(error)")
             }
         }
-        
+    
+    private func extractVolumeFromName(_ productName: String?) -> String? {
+            guard let name = productName else { return nil }
+            // Regex to match volume patterns in the product name
+            let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
+            let range = NSRange(location: 0, length: name.utf16.count)
+            if let match = volumeRegex?.firstMatch(in: name, options: [], range: range) {
+                let matchRange = match.range(at: 0)
+                if matchRange.location != NSNotFound,
+                   let matchedRange = Range(matchRange, in: name) {
+                    return String(name[matchedRange])
+                }
+            }
+            return nil
+        }
+    private func calculateWaterEstimate(
+        quantity: String?,
+        servingSize: String?,
+        waterPercentage: Double?
+    ) -> String? {
+        // If water percentage is not provided, return nil
+        guard let waterPercentage = waterPercentage else { return nil }
+
+        // Determine the base volume to use for calculation
+        let baseVolume: String?
+        if let servingSize = servingSize {
+            baseVolume = servingSize // Use serving size if available
+        } else {
+            baseVolume = quantity ?? extractVolumeFromName(productInfo?.name) // Fallback to quantity or product name
+        }
+
+        // If no base volume is available, return nil
+        guard let baseVolume = baseVolume else { return nil }
+
+        // Extract numeric value from the base volume
+        let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)", options: [])
+        let range = NSRange(location: 0, length: baseVolume.utf16.count)
+        if let match = volumeRegex?.firstMatch(in: baseVolume, options: [], range: range),
+           let matchRange = Range(match.range(at: 1), in: baseVolume),
+           let volumeValue = Double(baseVolume[matchRange]) {
+            // Calculate water content in milliliters (assuming percentage is out of 100)
+            let waterContent = (volumeValue * waterPercentage) / 100.0
+            return String(format: "%.2f ml", waterContent)
+        }
+
+        return nil
+    }
     public func lookupProductInformation(barcode: String) {
         isLoading = true
         errorMessage = nil
-        
         let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
         guard let url = URL(string: urlString) else {
             handleError("Invalid URL")
             return
         }
-        
         print("Making API call to: \(urlString)")
-        
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
-            
             DispatchQueue.main.async {
                 self.isLoading = false
-                
                 if let error = error {
                     print("Network error: \(error)")
                     self.handleError(error.localizedDescription)
                     return
                 }
-                
                 guard let data = data else {
                     print("No data received from API")
                     self.handleError("No product data received")
                     return
                 }
-                
                 // Print raw response for debugging
                 if let jsonString = String(data: data, encoding: .utf8) {
                     print("Raw API Response: \(jsonString)")
                 }
-                
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
-                    
                     guard let product = apiResponse.product else {
                         print("No product found in API response")
                         self.handleError("No product found")
                         return
                     }
-                    
                     print("API Response Product:")
                     print("- Name: \(product.product_name ?? "nil")")
                     print("- Keywords: \(product._keywords ?? [])")
                     
-                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    // Extract volume from quantity or fallback to product name
+                    let volume = self.extractVolume(from: product.quantity) ??
+                                 self.extractVolumeFromName(product.product_name) ??
+                                 "Unknown Volume"
+                    
+                    // Extract serving size
+                    let servingSize = product.serving_size
+                    
+                    // Determine drink category
                     let drinkCategory = self.determineDrinkCategory(
                         categories: product.categories,
                         genericName: product.generic_name
                     )
                     
+                    // Calculate water estimate
+                    let waterPercentage = product._keywords?.compactMap { Double($0.replacingOccurrences(of: "%", with: "")) }.first
+                    let waterEstimate = self.calculateWaterEstimate(
+                        quantity: product.quantity,
+                        servingSize: servingSize, // Pass serving size here
+                        waterPercentage: waterPercentage
+                    )
+                    
+                    // Create ProductInfo with water estimate
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
@@ -203,14 +258,13 @@ public class ProductScannerService: NSObject, ObservableObject {
                         keywords: product._keywords,
                         drinkCategory: drinkCategory
                     )
-                    
                     print("Created ProductInfo:")
                     print("- Keywords: \(productInfo.keywords ?? [])")
                     print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
+                    print("- Water Estimate: \(waterEstimate ?? "Not Available")")
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true
-                    
                 } catch {
                     print("Decoding error: \(error)")
                     self.handleError("Failed to decode product information: \(error.localizedDescription)")

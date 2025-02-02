@@ -46,13 +46,13 @@ struct OpenFoodFactsProduct: Codable {
 public struct ProductInfo: Codable, Identifiable, Equatable {
     public let id: String
     public let name: String
-    public let volume: String
+    public let volume: String // Keep this as non-optional
     public let imageUrl: String?
     public let keywords: [String]?
-    public let drinkCategory: String?
-    public let servingSize: String? // Add this field
-    public let waterPercentage: Double? // Add this field
-    
+    public let drinkCategory: String? // Add this field
+    public let servingSize: String? // Optional serving size
+    public let waterPercentage: Double? // Optional water percentage
+
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
                lhs.name == rhs.name &&
@@ -163,6 +163,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             return
         }
         
+        print("Making API call to: \(urlString)")
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
             
@@ -196,14 +197,16 @@ public class ProductScannerService: NSObject, ObservableObject {
                     // Extract water percentage (if available)
                     let waterPercentage = self.extractWaterPercentage(from: product.ingredients)
                     
-                    // Fallback to quantity if serving size is not available
-                    let volume = servingSize ?? self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    // Extract volume using the original logic
+                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
                     
+                    // Determine drink category
                     let drinkCategory = self.determineDrinkCategory(
                         categories: product.categories,
                         genericName: product.generic_name
                     )
                     
+                    // Create ProductInfo with optional servingSize and waterPercentage
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
@@ -231,14 +234,28 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
+
+    // Helper method to extract water percentage
+    private func extractWaterPercentage(from ingredients: [OpenFoodFactsIngredient]?) -> Double? {
+        guard let ingredients = ingredients else { return nil }
+        
+        for ingredient in ingredients {
+            if ingredient.id == "en:carbonated-water" || ingredient.id == "en:water" {
+                return ingredient.percent_estimate
+            }
+        }
+        return nil
+    }
     private func extractVolume(from quantityString: String?) -> String? {
         guard let quantity = quantityString else { return nil }
         
-        // Use NSRegularExpression correctly
+        // Extract numeric value followed by ml, cl, L, etc.
         let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
         let range = NSRange(location: 0, length: quantity.utf16.count)
         if let match = volumeRegex?.firstMatch(in: quantity, options: [], range: range) {
-            if let matchedRange = Range(match.range(at: 0), in: quantity) {
+            let matchRange = match.range(at: 0)
+            if matchRange.location != NSNotFound,
+               let matchedRange = Range(matchRange, in: quantity) {
                 return String(quantity[matchedRange])
             }
         }
@@ -259,16 +276,6 @@ public class ProductScannerService: NSObject, ObservableObject {
         return nil
     }
     
-    private func extractWaterPercentage(from ingredients: [OpenFoodFactsIngredient]?) -> Double? {
-        guard let ingredients = ingredients else { return nil }
-        
-        for ingredient in ingredients {
-            if ingredient.id == "en:carbonated-water" || ingredient.id == "en:water" {
-                return ingredient.percent_estimate
-            }
-        }
-        return nil
-    }
     
     private func calculateWaterContent(percentage: Double, servingSize: Double) -> Double {
         return (percentage / 100.0) * servingSize

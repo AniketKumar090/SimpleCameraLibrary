@@ -22,6 +22,7 @@ struct OpenFoodFactsProduct: Codable {
     let image_url: String?
     let categories: String?
     let generic_name: String?
+    let _keywords: [String]? // Add this field
 }
 
 // Update ProductInfo to include drink category string
@@ -137,6 +138,7 @@ public class ProductScannerService: NSObject, ObservableObject {
                     return
                 }
                 
+                
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
@@ -146,26 +148,21 @@ public class ProductScannerService: NSObject, ObservableObject {
                     }
                     
                     // Debug print
-                    print("Raw categories from API: \(product.categories ?? "nil")")
+                    print("Raw keywords from API: \(product._keywords ?? [])")
                     
                     let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
-                    let keywords = self.extractKeywords(from: product.categories)
-                    
-                    // Debug print
-                    print("Extracted keywords: \(keywords ?? [])")
-                    
                     let drinkCategory = self.determineDrinkCategory(
                         categories: product.categories,
                         genericName: product.generic_name
                     )
                     
-                    // Create ProductInfo with debug print
+                    // Use _keywords directly from the API instead of extracting from categories
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
                         imageUrl: product.image_url,
-                        keywords: keywords,
+                        keywords: product._keywords, // Use the API-provided keywords
                         drinkCategory: drinkCategory
                     )
                     

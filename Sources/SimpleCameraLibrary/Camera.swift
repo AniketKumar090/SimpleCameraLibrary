@@ -78,20 +78,20 @@ public class ProductScannerService: NSObject, ObservableObject {
     }
     
     // MARK: - UserDefaults Management
-    private func loadCachedProductInfo() {
-        if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey),
-           let savedProducts = try? JSONDecoder().decode([String: ProductInfo].self, from: savedData) {
-            cachedProductInfo = savedProducts
-        }
-    }
+//    private func loadCachedProductInfo() {
+//        if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey),
+//           let savedProducts = try? JSONDecoder().decode([String: ProductInfo].self, from: savedData) {
+//            cachedProductInfo = savedProducts
+//        }
+//    }
     
-    private func saveProductInfo(_ product: ProductInfo) {
-        cachedProductInfo[product.id] = product
-        
-        if let encoded = try? JSONEncoder().encode(cachedProductInfo) {
-            UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
-        }
-    }
+//    private func saveProductInfo(_ product: ProductInfo) {
+//        cachedProductInfo[product.id] = product
+//        
+//        if let encoded = try? JSONEncoder().encode(cachedProductInfo) {
+//            UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
+//        }
+//    }
     public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
         let categories = categories?.lowercased() ?? ""
         let genericName = genericName?.lowercased() ?? ""
@@ -109,120 +109,130 @@ public class ProductScannerService: NSObject, ObservableObject {
         return nil
     }
     // MARK: - Open Food Facts Product Lookup
-    public func lookupProductInformation(barcode: String) {
-        // First, check if we have a cached result
-        if let cachedProduct = cachedProductInfo[barcode] {
-            print("Found cached product: \(cachedProduct)")
-            DispatchQueue.main.async {
-                self.productInfo = cachedProduct
-                self.showingScanResult = true
-            }
-            return
+    public func clearCache() {
+            cachedProductInfo.removeAll()
+            UserDefaults.standard.removeObject(forKey: userDefaultsProductInfoKey)
         }
         
-        isLoading = true
-        errorMessage = nil
-        
-        let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
-        guard let url = URL(string: urlString) else {
-            handleError("Invalid URL")
-            return
-        }
-        
-        print("Making API call to: \(urlString)")
-        
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            DispatchQueue.main.async {
-                self.isLoading = false
-                
-                if let error = error {
-                    print("Network error: \(error)")
-                    self.handleError(error.localizedDescription)
-                    return
-                }
-                
-                guard let data = data else {
-                    print("No data received from API")
-                    self.handleError("No product data received")
-                    return
-                }
-                
-                // Print raw JSON for debugging
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("Raw API Response: \(jsonString)")
-                }
-                
+        private func loadCachedProductInfo() {
+            if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey) {
                 do {
-                    // First try to decode as a dictionary to inspect the raw structure
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("Raw JSON structure:")
-                        print(json)
-                    }
-                    
                     let decoder = JSONDecoder()
-                    let apiResponse = try decoder.decode(OpenFoodFactsResponse.self, from: data)
+                    cachedProductInfo = try decoder.decode([String: ProductInfo].self, from: savedData)
+                    print("Loaded cache with \(cachedProductInfo.count) items")
                     
-                    print("Successfully decoded API response")
+                    // Debug: Print cached items
+                    for (barcode, info) in cachedProductInfo {
+                        print("Cached item:")
+                        print("- Barcode: \(barcode)")
+                        print("- Name: \(info.name)")
+                        print("- Keywords: \(info.keywords ?? [])")
+                        print("- DrinkCategory: \(info.drinkCategory ?? "nil")")
+                    }
+                } catch {
+                    print("Error loading cache: \(error)")
+                    // If there's an error loading the cache, clear it
+                    clearCache()
+                }
+            }
+        }
+        
+        private func saveProductInfo(_ product: ProductInfo) {
+            print("Saving product to cache:")
+            print("- Name: \(product.name)")
+            print("- Keywords: \(product.keywords ?? [])")
+            print("- DrinkCategory: \(product.drinkCategory ?? "nil")")
+            
+            cachedProductInfo[product.id] = product
+            
+            do {
+                let encoder = JSONEncoder()
+                let encoded = try encoder.encode(cachedProductInfo)
+                UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
+                print("Successfully saved to cache")
+            } catch {
+                print("Error saving to cache: \(error)")
+            }
+        }
+        
+        public func lookupProductInformation(barcode: String) {
+            print("Looking up product information for barcode: \(barcode)")
+            
+            // Clear cache for this specific barcode to force a new API call
+            cachedProductInfo.removeValue(forKey: barcode)
+            
+            isLoading = true
+            errorMessage = nil
+            
+            let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
+            guard let url = URL(string: urlString) else {
+                handleError("Invalid URL")
+                return
+            }
+            
+            print("Making API call to: \(urlString)")
+            
+            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+                guard let self = self else { return }
+                
+                DispatchQueue.main.async {
+                    self.isLoading = false
                     
-                    guard let product = apiResponse.product else {
-                        print("No product found in API response")
-                        self.handleError("No product found")
+                    if let error = error {
+                        print("Network error: \(error)")
+                        self.handleError(error.localizedDescription)
                         return
                     }
                     
-                    print("Product from API:")
-                    print("- Keywords: \(product._keywords ?? [])")
-                    print("- Name: \(product.product_name ?? "nil")")
-                    print("- Categories: \(product.categories ?? "nil")")
-                    
-                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
-                    let drinkCategory = self.determineDrinkCategory(
-                        categories: product.categories,
-                        genericName: product.generic_name
-                    )
-                    
-                    let productInfo = ProductInfo(
-                        id: barcode,
-                        name: product.product_name ?? "Unknown Product",
-                        volume: volume,
-                        imageUrl: product.image_url,
-                        keywords: product._keywords,
-                        drinkCategory: drinkCategory
-                    )
-                    
-                    print("Created ProductInfo:")
-                    print("- Keywords: \(productInfo.keywords ?? [])")
-                    print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
-                    
-                    self.productInfo = productInfo
-                    self.saveProductInfo(productInfo)
-                    self.showingScanResult = true
-                    
-                } catch {
-                    print("Decoding error details: \(error)")
-                    if let decodingError = error as? DecodingError {
-                        switch decodingError {
-                        case .keyNotFound(let key, let context):
-                            print("Missing key: \(key)")
-                            print("Context: \(context.debugDescription)")
-                        case .typeMismatch(let type, let context):
-                            print("Type mismatch: expected \(type)")
-                            print("Context: \(context.debugDescription)")
-                        case .valueNotFound(let type, let context):
-                            print("Value not found: expected \(type)")
-                            print("Context: \(context.debugDescription)")
-                        case .dataCorrupted(let context):
-                            print("Data corrupted: \(context.debugDescription)")
-                        @unknown default:
-                            print("Unknown decoding error")
-                        }
+                    guard let data = data else {
+                        print("No data received from API")
+                        self.handleError("No product data received")
+                        return
                     }
-                    self.handleError("Failed to decode product information: \(error.localizedDescription)")
+                    
+                    do {
+                        let decoder = JSONDecoder()
+                        let apiResponse = try decoder.decode(OpenFoodFactsResponse.self, from: data)
+                        
+                        guard let product = apiResponse.product else {
+                            print("No product found in API response")
+                            self.handleError("No product found")
+                            return
+                        }
+                        
+                        print("Product from API:")
+                        print("- Keywords: \(product._keywords ?? [])")
+                        print("- Name: \(product.product_name ?? "nil")")
+                        
+                        let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                        let drinkCategory = self.determineDrinkCategory(
+                            categories: product.categories,
+                            genericName: product.generic_name
+                        )
+                        
+                        let productInfo = ProductInfo(
+                            id: barcode,
+                            name: product.product_name ?? "Unknown Product",
+                            volume: volume,
+                            imageUrl: product.image_url,
+                            keywords: product._keywords,
+                            drinkCategory: drinkCategory
+                        )
+                        
+                        print("Created ProductInfo:")
+                        print("- Keywords: \(productInfo.keywords ?? [])")
+                        print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
+                        
+                        self.productInfo = productInfo
+                        self.saveProductInfo(productInfo)
+                        self.showingScanResult = true
+                        
+                    } catch {
+                        print("Decoding error: \(error)")
+                        self.handleError("Failed to decode product information: \(error.localizedDescription)")
+                    }
                 }
-            }
-        }.resume()
+            }.resume()
     }
     private func extractKeywords(from categories: String?) -> [String]? {
         guard let categories = categories else { return nil }

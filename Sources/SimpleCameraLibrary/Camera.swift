@@ -30,6 +30,7 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
     public let name: String
     public let volume: String
     public let imageUrl: String?
+    public let keywords: [String]?
     public let drinkCategory: String? // Add this field
     
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
@@ -37,6 +38,7 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
                lhs.name == rhs.name &&
                lhs.volume == rhs.volume &&
                lhs.imageUrl == rhs.imageUrl &&
+               lhs.keywords == rhs.keywords &&
                lhs.drinkCategory == rhs.drinkCategory
     }
 }

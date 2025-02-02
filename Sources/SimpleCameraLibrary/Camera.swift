@@ -166,8 +166,8 @@ public class ProductScannerService: NSObject, ObservableObject {
                         drinkCategory: drinkCategory
                     )
                     
-                    print("Created ProductInfo with keywords: \(productInfo.keywords ?? [])")
-                    
+                    //print("Created ProductInfo with keywords: \(productInfo.keywords ?? [])")
+                    print("Created ProductInfo with keywords: \(String(describing: productInfo.keywords))")
                     self.productInfo = productInfo
                     self.saveProductInfo(productInfo)
                     self.showingScanResult = true

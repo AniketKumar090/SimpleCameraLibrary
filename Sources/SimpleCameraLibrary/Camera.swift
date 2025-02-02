@@ -124,7 +124,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
             
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [self] in
                 self.isLoading = false
                 
                 if let error = error {
@@ -159,9 +159,10 @@ public class ProductScannerService: NSObject, ObservableObject {
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
                         imageUrl: product.image_url,
+                        keywords: self.extractKeywords(from: product.categories), // Add keywords parameter
                         drinkCategory: drinkCategory
                     )
-                    
+
                     self.productInfo = productInfo
                     self.saveProductInfo(productInfo)
                     self.showingScanResult = true
@@ -171,7 +172,15 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
-    
+    private func extractKeywords(from categories: String?) -> [String]? {
+        guard let categories = categories else { return nil }
+        
+        // Split categories by commas and clean up each keyword
+        return categories
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
     // Helper method to extract volume from quantity string
     private func extractVolume(from quantityString: String?) -> String? {
         guard let quantity = quantityString else { return nil }

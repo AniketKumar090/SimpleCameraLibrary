@@ -413,37 +413,75 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {}
 }
 #endif
-// MARK: - Example Usage in SwiftUI
-//@available(iOS 13.0, macOS 13.0, *)
-//struct ContentView: View {
-//    @StateObject private var scannerService = ProductScannerService()
-//    
-//    var body: some View {
-//        VStack {
-//            if scannerService.showingScanResult {
-//                if let productInfo = scannerService.productInfo {
-//                    Text("Product: \(productInfo.name)")
-//                    Text("Volume: \(productInfo.volume)")
-//                    if let imageUrl = productInfo.imageUrl, let url = URL(string: imageUrl) {
-//                        AsyncImage(url: url) { image in
-//                            image.resizable()
-//                        } placeholder: {
-//                            ProgressView()
-//                        }
-//                        .frame(width: 100, height: 100)
-//                    }
-//                } else if let errorMessage = scannerService.errorMessage {
-//                    Text("Error: \(errorMessage)")
-//                        .foregroundColor(.red)
-//                }
-//                Button("Scan Again") {
-//                    scannerService.showingScanResult = false
-//                    scannerService.startScanning()
-//                }
-//            } else {
-//                BarcodeScannerPreviewView(scannerService: scannerService)
-//                    .edgesIgnoringSafeArea(.all)
-//            }
-//        }
-//    }
-//}
+// MARK: - Water Content Calculator
+extension ProductInfo {
+    public struct WaterContent {
+        public let milliliters: Double
+        public let percentage: Double
+        
+        public var description: String {
+            return String(format: "%.1f ml (%.1f%%)", milliliters, percentage)
+        }
+    }
+    
+    public func calculateWaterContent(servingSize: String?) -> WaterContent? {
+        // Check if serving size exists
+        guard let servingSizeStr = servingSize?.lowercased() else {
+            return nil
+        }
+        
+        // Extract numeric value and unit from serving size
+        let servingSizeRegex = try? NSRegularExpression(pattern: "(\\d+(?:\\.\\d+)?)\\s*(ml|l|cl|oz|fl\\.?\\s*oz)", options: .caseInsensitive)
+        
+        guard let regex = servingSizeRegex,
+              let match = regex.firstMatch(in: servingSizeStr, range: NSRange(servingSizeStr.startIndex..., in: servingSizeStr)) else {
+            return nil
+        }
+        
+        // Extract value and unit from regex match
+        guard let valueRange = Range(match.range(at: 1), in: servingSizeStr),
+              let unitRange = Range(match.range(at: 2), in: servingSizeStr),
+              let value = Double(servingSizeStr[valueRange]) else {
+            return nil
+        }
+        
+        let unit = servingSizeStr[unitRange]
+        
+        // Convert to milliliters
+        let totalMilliliters: Double
+        switch unit {
+        case "ml":
+            totalMilliliters = value
+        case "l":
+            totalMilliliters = value * 1000
+        case "cl":
+            totalMilliliters = value * 10
+        case "oz", "fl.oz", "fl oz":
+            totalMilliliters = value * 29.5735 // Convert fluid ounces to milliliters
+        default:
+            return nil
+        }
+        
+        // Calculate water content based on drink category
+        let waterPercentage: Double
+        switch self.drinkCategory?.lowercased() {
+        case "water":
+            waterPercentage = 100.0
+        case "tea":
+            waterPercentage = 99.5 // Tea is mostly water
+        case "coffee":
+            waterPercentage = 98.5 // Coffee is mostly water
+        case "soda":
+            waterPercentage = 90.0 // Sodas typically contain around 90% water
+        default:
+            waterPercentage = 0.0 // Unknown drink type
+        }
+        
+        let waterMilliliters = totalMilliliters * (waterPercentage / 100.0)
+        
+        return WaterContent(
+            milliliters: waterMilliliters,
+            percentage: waterPercentage
+        )
+    }
+}

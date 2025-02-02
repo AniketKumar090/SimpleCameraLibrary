@@ -413,75 +413,102 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {}
 }
 #endif
-// MARK: - Water Content Calculator
+// MARK: - Volume Units
+public enum VolumeUnit: String {
+    case ml = "ml"
+    case L = "L"
+    case cl = "cl"
+    
+    func toMilliliters(_ value: Double) -> Double {
+        switch self {
+        case .ml:
+            return value
+        case .L:
+            return value * 1000
+        case .cl:
+            return value * 10
+        }
+    }
+}
+
+public struct WaterContent {
+    public let waterAmount: Double
+    public let unit: VolumeUnit
+    public let percentageOfServing: Double
+    
+    public var formattedString: String {
+        return String(format: "%.1f %@ (%.1f%% of serving)", waterAmount, unit.rawValue, percentageOfServing)
+    }
+}
+
 extension ProductInfo {
-    public struct WaterContent {
-        public let milliliters: Double
-        public let percentage: Double
+    /// Extracts serving size from volume string
+    /// - Returns: Tuple containing the serving size value and unit if found
+    private func extractServingSize() -> (value: Double, unit: VolumeUnit)? {
+        let volumeRegex = try? NSRegularExpression(pattern: "(\\d+(?:\\.\\d+)?)\\s*(ml|L|cl)", options: .caseInsensitive)
+        guard let match = volumeRegex?.firstMatch(in: volume, options: [], range: NSRange(location: 0, length: volume.utf16.count)) else {
+            return nil
+        }
         
-        public var description: String {
-            return String(format: "%.1f ml (%.1f%%)", milliliters, percentage)
+        guard let valueRange = Range(match.range(at: 1), in: volume),
+              let unitRange = Range(match.range(at: 2), in: volume),
+              let value = Double(volume[valueRange]),
+              let unit = VolumeUnit(rawValue: volume[unitRange].lowercased()) else {
+            return nil
+        }
+        
+        return (value, unit)
+    }
+    
+    /// Calculates default water percentage based on drink category
+    private func defaultWaterPercentage() -> Double {
+        switch drinkCategory?.lowercased() {
+        case "water":
+            return 100.0
+        case "tea":
+            return 99.5
+        case "coffee":
+            return 98.5
+        case "soda":
+            return 90.0
+        default:
+            return 85.0 // Default assumption for unknown beverages
         }
     }
     
-    public func calculateWaterContent(servingSize: String?) -> WaterContent? {
-        // Check if serving size exists
-        guard let servingSizeStr = servingSize?.lowercased() else {
+    /// Calculates water content based on serving size and drink type
+    /// - Parameter overrideWaterPercentage: Optional parameter to override the default water percentage
+    /// - Returns: WaterContent object containing the amount of water and percentage of serving
+    public func calculateWaterContent(overrideWaterPercentage: Double? = nil) -> WaterContent? {
+        guard let (servingValue, servingUnit) = extractServingSize() else {
             return nil
         }
         
-        // Extract numeric value and unit from serving size
-        let servingSizeRegex = try? NSRegularExpression(pattern: "(\\d+(?:\\.\\d+)?)\\s*(ml|l|cl|oz|fl\\.?\\s*oz)", options: .caseInsensitive)
+        // Use override percentage if provided, otherwise use default based on drink type
+        let waterPercentage = overrideWaterPercentage ?? defaultWaterPercentage()
         
-        guard let regex = servingSizeRegex,
-              let match = regex.firstMatch(in: servingSizeStr, range: NSRange(servingSizeStr.startIndex..., in: servingSizeStr)) else {
-            return nil
+        // Convert serving size to ml for calculation
+        let servingSizeInML = servingUnit.toMilliliters(servingValue)
+        
+        // Calculate water content
+        let waterRatio = waterPercentage / 100.0
+        let waterContent = servingSizeInML * waterRatio
+        
+        // Return result in original unit
+        let waterAmount: Double
+        switch servingUnit {
+        case .ml:
+            waterAmount = waterContent
+        case .L:
+            waterAmount = waterContent / 1000
+        case .cl:
+            waterAmount = waterContent / 10
         }
-        
-        // Extract value and unit from regex match
-        guard let valueRange = Range(match.range(at: 1), in: servingSizeStr),
-              let unitRange = Range(match.range(at: 2), in: servingSizeStr),
-              let value = Double(servingSizeStr[valueRange]) else {
-            return nil
-        }
-        
-        let unit = servingSizeStr[unitRange]
-        
-        // Convert to milliliters
-        let totalMilliliters: Double
-        switch unit {
-        case "ml":
-            totalMilliliters = value
-        case "l":
-            totalMilliliters = value * 1000
-        case "cl":
-            totalMilliliters = value * 10
-        case "oz", "fl.oz", "fl oz":
-            totalMilliliters = value * 29.5735 // Convert fluid ounces to milliliters
-        default:
-            return nil
-        }
-        
-        // Calculate water content based on drink category
-        let waterPercentage: Double
-        switch self.drinkCategory?.lowercased() {
-        case "water":
-            waterPercentage = 100.0
-        case "tea":
-            waterPercentage = 99.5 // Tea is mostly water
-        case "coffee":
-            waterPercentage = 98.5 // Coffee is mostly water
-        case "soda":
-            waterPercentage = 90.0 // Sodas typically contain around 90% water
-        default:
-            waterPercentage = 0.0 // Unknown drink type
-        }
-        
-        let waterMilliliters = totalMilliliters * (waterPercentage / 100.0)
         
         return WaterContent(
-            milliliters: waterMilliliters,
-            percentage: waterPercentage
+            waterAmount: waterAmount,
+            unit: servingUnit,
+            percentageOfServing: waterPercentage
         )
     }
 }

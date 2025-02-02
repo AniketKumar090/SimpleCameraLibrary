@@ -190,17 +190,19 @@ public class ProductScannerService: NSObject, ObservableObject {
                         return
                     }
                     
-                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    // Extract serving size (if available)
+                    let servingSize = product.serving_size
+                    
+                    // Extract water percentage (if available)
+                    let waterPercentage = self.extractWaterPercentage(from: product.ingredients)
+                    
+                    // Fallback to quantity if serving size is not available
+                    let volume = servingSize ?? self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    
                     let drinkCategory = self.determineDrinkCategory(
                         categories: product.categories,
                         genericName: product.generic_name
                     )
-                    
-                    // Extract serving size
-                    let servingSize = product.serving_size
-                    
-                    // Extract water percentage
-                    let waterPercentage = self.extractWaterPercentage(from: product.ingredients)
                     
                     let productInfo = ProductInfo(
                         id: barcode,
@@ -212,6 +214,12 @@ public class ProductScannerService: NSObject, ObservableObject {
                         servingSize: servingSize, // Add serving size
                         waterPercentage: waterPercentage // Add water percentage
                     )
+                    
+                    print("Created ProductInfo:")
+                    print("- Name: \(productInfo.name)")
+                    print("- Volume: \(productInfo.volume)")
+                    print("- Serving Size: \(productInfo.servingSize ?? "nil")")
+                    print("- Water Percentage: \(productInfo.waterPercentage ?? 0)%")
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true

@@ -50,7 +50,8 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
     public let imageUrl: String?
     public let keywords: [String]?
     public let drinkCategory: String?
-    public let estimatedWaterContent: Double? // Add this field
+    public let servingSize: String? // Add this field
+    public let waterPercentage: Double? // Add this field
     
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
@@ -59,10 +60,10 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
                lhs.imageUrl == rhs.imageUrl &&
                lhs.keywords == rhs.keywords &&
                lhs.drinkCategory == rhs.drinkCategory &&
-               lhs.estimatedWaterContent == rhs.estimatedWaterContent
+               lhs.servingSize == rhs.servingSize &&
+               lhs.waterPercentage == rhs.waterPercentage
     }
 }
-
 // MARK: - Barcode Scanning and Product Service
 @available(iOS 13.0, macOS 13.0, *)
 public class ProductScannerService: NSObject, ObservableObject {
@@ -180,11 +181,6 @@ public class ProductScannerService: NSObject, ObservableObject {
                     return
                 }
                 
-                // Print raw response for debugging
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("Raw API Response: \(jsonString)")
-                }
-                
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
@@ -194,39 +190,28 @@ public class ProductScannerService: NSObject, ObservableObject {
                         return
                     }
                     
+                    let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
+                    let drinkCategory = self.determineDrinkCategory(
+                        categories: product.categories,
+                        genericName: product.generic_name
+                    )
+                    
                     // Extract serving size
-                    guard let servingSize = self.extractServingSize(from: product.serving_size) else {
-                        print("Serving size not found")
-                        self.handleError("Serving size not available")
-                        return
-                    }
+                    let servingSize = product.serving_size
                     
                     // Extract water percentage
-                    guard let waterPercentage = self.extractWaterPercentage(from: product.ingredients) else {
-                        print("Water percentage not found")
-                        self.handleError("Water percentage not available")
-                        return
-                    }
-                    
-                    // Calculate water content
-                    let waterContent = self.calculateWaterContent(percentage: waterPercentage, servingSize: servingSize)
+                    let waterPercentage = self.extractWaterPercentage(from: product.ingredients)
                     
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
-                        volume: product.quantity ?? "Unknown Volume",
+                        volume: volume,
                         imageUrl: product.image_url,
                         keywords: product._keywords,
-                        drinkCategory: self.determineDrinkCategory(
-                            categories: product.categories,
-                            genericName: product.generic_name
-                        ),
-                        estimatedWaterContent: waterContent
+                        drinkCategory: drinkCategory,
+                        servingSize: servingSize, // Add serving size
+                        waterPercentage: waterPercentage // Add water percentage
                     )
-                    
-                    print("Created ProductInfo:")
-                    print("- Name: \(productInfo.name)")
-                    print("- Estimated Water Content: \(productInfo.estimatedWaterContent ?? 0.0) ml")
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true
@@ -238,7 +223,19 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
-    
+    private func extractVolume(from quantityString: String?) -> String? {
+        guard let quantity = quantityString else { return nil }
+        
+        // Use NSRegularExpression correctly
+        let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
+        let range = NSRange(location: 0, length: quantity.utf16.count)
+        if let match = volumeRegex?.firstMatch(in: quantity, options: [], range: range) {
+            if let matchedRange = Range(match.range(at: 0), in: quantity) {
+                return String(quantity[matchedRange])
+            }
+        }
+        return nil
+    }
     private func extractServingSize(from servingSizeText: String?) -> Double? {
         guard let text = servingSizeText else { return nil }
         

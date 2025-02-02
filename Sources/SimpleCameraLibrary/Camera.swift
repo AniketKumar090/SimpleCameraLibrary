@@ -22,9 +22,17 @@ struct OpenFoodFactsProduct: Codable {
     let image_url: String?
     let categories: String?
     let generic_name: String?
-    let _keywords: [String]? // Add this field
+    let _keywords: [String]?  // Make sure this matches the API response exactly
+    
+    private enum CodingKeys: String, CodingKey {
+        case product_name
+        case quantity
+        case image_url
+        case categories
+        case generic_name
+        case _keywords = "_keywords"  // Explicitly map to match API response
+    }
 }
-
 // Update ProductInfo to include drink category string
 public struct ProductInfo: Codable, Identifiable, Equatable {
     public let id: String
@@ -122,6 +130,8 @@ public class ProductScannerService: NSObject, ObservableObject {
             return
         }
         
+        print("Making API call to: \(urlString)")  // Debug print
+        
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self else { return }
             
@@ -138,6 +148,10 @@ public class ProductScannerService: NSObject, ObservableObject {
                     return
                 }
                 
+                // Debug: Print raw JSON response
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("Raw API Response: \(jsonString)")
+                }
                 
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
@@ -147,8 +161,12 @@ public class ProductScannerService: NSObject, ObservableObject {
                         return
                     }
                     
-                    // Debug print
-                    print("Raw keywords from API: \(product._keywords ?? [])")
+                    // Debug prints
+                    print("API Response Product:")
+                    print("- Name: \(product.product_name ?? "nil")")
+                    print("- Keywords: \(product._keywords ?? [])")
+                    print("- Categories: \(product.categories ?? "nil")")
+                    print("- Generic Name: \(product.generic_name ?? "nil")")
                     
                     let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
                     let drinkCategory = self.determineDrinkCategory(
@@ -156,22 +174,29 @@ public class ProductScannerService: NSObject, ObservableObject {
                         genericName: product.generic_name
                     )
                     
-                    // Use _keywords directly from the API instead of extracting from categories
+                    // Create ProductInfo with keywords from API
                     let productInfo = ProductInfo(
                         id: barcode,
                         name: product.product_name ?? "Unknown Product",
                         volume: volume,
                         imageUrl: product.image_url,
-                        keywords: product._keywords, // Use the API-provided keywords
+                        keywords: product._keywords,  // Make sure this is being set
                         drinkCategory: drinkCategory
                     )
                     
-                    //print("Created ProductInfo with keywords: \(productInfo.keywords ?? [])")
-                    print("Created ProductInfo with keywords: \(String(describing: productInfo.keywords))")
+                    // Debug print the created ProductInfo
+                    print("Created ProductInfo:")
+                    print("- ID: \(productInfo.id)")
+                    print("- Name: \(productInfo.name)")
+                    print("- Volume: \(productInfo.volume)")
+                    print("- Keywords: \(productInfo.keywords ?? [])")
+                    print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
+                    
                     self.productInfo = productInfo
                     self.saveProductInfo(productInfo)
                     self.showingScanResult = true
                 } catch {
+                    print("Decoding error: \(error)")  // Detailed error print
                     self.handleError("Failed to decode product information: \(error.localizedDescription)")
                 }
             }

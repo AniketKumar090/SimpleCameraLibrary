@@ -64,6 +64,11 @@ public class ProductScannerService: NSObject, ObservableObject {
     @Published public var isLoading = false
     @Published public var errorMessage: String?
     
+    private var isProcessingBarcode = false
+    private var lastScannedBarcode: String?
+    private var lastScanTime: Date?
+    private let scanCooldown: TimeInterval = 2.0 // Cooldown period in seconds
+       
     // UserDefaults key for storing product information
     private let userDefaultsProductInfoKey = "SavedProductInformation"
     
@@ -77,7 +82,8 @@ public class ProductScannerService: NSObject, ObservableObject {
         setupBarcodeScanner()
     }
     
-
+    
+        
     public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
         let categories = categories?.lowercased() ?? ""
         let genericName = genericName?.lowercased() ?? ""
@@ -140,7 +146,6 @@ public class ProductScannerService: NSObject, ObservableObject {
                 print("Error saving to cache: \(error)")
             }
         }
-        
     public func lookupProductInformation(barcode: String) {
         isLoading = true
         errorMessage = nil
@@ -148,6 +153,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         let urlString = "https://world.openfoodfacts.org/api/v2/product/\(barcode).json"
         guard let url = URL(string: urlString) else {
             handleError("Invalid URL")
+            isProcessingBarcode = false
             return
         }
         
@@ -158,6 +164,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             
             DispatchQueue.main.async {
                 self.isLoading = false
+                self.isProcessingBarcode = false // Reset processing state
                 
                 if let error = error {
                     print("Network error: \(error)")
@@ -171,11 +178,6 @@ public class ProductScannerService: NSObject, ObservableObject {
                     return
                 }
                 
-                // Print raw response for debugging
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("Raw API Response: \(jsonString)")
-                }
-                
                 do {
                     let apiResponse = try JSONDecoder().decode(OpenFoodFactsResponse.self, from: data)
                     
@@ -184,10 +186,6 @@ public class ProductScannerService: NSObject, ObservableObject {
                         self.handleError("No product found")
                         return
                     }
-                    
-                    print("API Response Product:")
-                    print("- Name: \(product.product_name ?? "nil")")
-                    print("- Keywords: \(product._keywords ?? [])")
                     
                     let volume = self.extractVolume(from: product.quantity) ?? "Unknown Volume"
                     let drinkCategory = self.determineDrinkCategory(
@@ -204,12 +202,12 @@ public class ProductScannerService: NSObject, ObservableObject {
                         drinkCategory: drinkCategory
                     )
                     
-                    print("Created ProductInfo:")
-                    print("- Keywords: \(productInfo.keywords ?? [])")
-                    print("- Drink Category: \(productInfo.drinkCategory ?? "nil")")
+                    // Save to cache
+                    self.saveProductInfo(productInfo)
                     
                     self.productInfo = productInfo
                     self.showingScanResult = true
+                    self.stopScanning()
                     
                 } catch {
                     print("Decoding error: \(error)")
@@ -218,6 +216,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
+      
     private func extractKeywords(from categories: String?) -> [String]? {
         guard let categories = categories else { return nil }
         
@@ -252,6 +251,7 @@ public class ProductScannerService: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.errorMessage = message
             self.showingScanResult = true
+            self.isProcessingBarcode = false // Reset processing state on error
         }
     }
 
@@ -311,7 +311,18 @@ public class ProductScannerService: NSObject, ObservableObject {
     }
     
     // MARK: - Scanning Control
+    public func resetScanningState() {
+        isProcessingBarcode = false
+        lastScannedBarcode = nil
+        lastScanTime = nil
+        errorMessage = nil
+        showingScanResult = false
+        productInfo = nil
+    }
+        
+        // Modify startScanning to reset state
     public func startScanning() {
+        resetScanningState()
         DispatchQueue.global(qos: .background).async {
             self.session.startRunning()
         }
@@ -328,16 +339,46 @@ public class ProductScannerService: NSObject, ObservableObject {
 @available(iOS 13.0, macOS 13.0, *)
 extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
     public func metadataOutput(_ output: AVCaptureMetadataOutput,
-                        didOutput metadataObjects: [AVMetadataObject],
-                        from connection: AVCaptureConnection) {
-        if let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject {
-            let barcode = metadataObject.stringValue ?? ""
+                                 didOutput metadataObjects: [AVMetadataObject],
+                               from connection: AVCaptureConnection) {
+        guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              let barcode = metadataObject.stringValue else {
+            return
+        }
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             
-            DispatchQueue.main.async {
-                self.scannedBarcode = barcode
-                self.lookupProductInformation(barcode: barcode)
-                self.stopScanning()
+            // Check if we're already processing a barcode
+            guard !self.isProcessingBarcode else {
+                return
             }
+            
+            // Check if this is the same barcode scanned recently
+            if let lastBarcode = self.lastScannedBarcode,
+               let lastTime = self.lastScanTime,
+               lastBarcode == barcode &&
+                Date().timeIntervalSince(lastTime) < self.scanCooldown {
+                return
+            }
+            
+            // Update state tracking
+            self.isProcessingBarcode = true
+            self.lastScannedBarcode = barcode
+            self.lastScanTime = Date()
+            self.scannedBarcode = barcode
+            
+            // First check the cache
+            if let cachedProduct = self.cachedProductInfo[barcode] {
+                self.productInfo = cachedProduct
+                self.showingScanResult = true
+                self.stopScanning()
+                self.isProcessingBarcode = false
+                return
+            }
+            
+            // If not in cache, make the API call
+            self.lookupProductInformation(barcode: barcode)
         }
     }
 }

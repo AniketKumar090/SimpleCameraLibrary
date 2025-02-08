@@ -348,7 +348,6 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
-    // Mark the initializer as public
     public init(scannerService: ProductScannerService) {
         self.scannerService = scannerService
     }
@@ -356,29 +355,34 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
     public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
         
-        scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
-        scannerService.preview?.frame = view.bounds
-        scannerService.preview?.videoGravity = .resizeAspectFill // Ensure no zoom
+        let previewLayer = AVCaptureVideoPreviewLayer(session: scannerService.session)
+        previewLayer.frame = view.bounds
+        previewLayer.videoGravity = .resizeAspectFill
         
-        // Set the preview layer's orientation to match the device's orientation
-        if let connection = scannerService.preview?.connection {
+        // Set the preview layer's orientation
+        if let connection = previewLayer.connection {
             connection.videoOrientation = .portrait
         }
         
-        view.layer.addSublayer(scannerService.preview!)
-        scannerService.startScanning()
+        view.layer.addSublayer(previewLayer)
+        
+        // Store the preview layer reference without using @Published
+        DispatchQueue.main.async {
+            scannerService.preview = previewLayer
+            scannerService.startScanning()
+        }
         
         return view
     }
     
     public func updateUIView(_ uiView: UIView, context: Context) {}
 }
+
 #elseif os(macOS)
 @available(macOS 13.0, *)
 public struct BarcodeScannerPreviewView: NSViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
     
-    // Mark the initializer as public
     public init(scannerService: ProductScannerService) {
         self.scannerService = scannerService
     }
@@ -386,12 +390,17 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         
-        scannerService.preview = AVCaptureVideoPreviewLayer(session: scannerService.session)
-        scannerService.preview?.frame = view.bounds
-        scannerService.preview?.videoGravity = .resizeAspect // Ensure no zoom
+        let previewLayer = AVCaptureVideoPreviewLayer(session: scannerService.session)
+        previewLayer.frame = view.bounds
+        previewLayer.videoGravity = .resizeAspect
         
-        view.layer = scannerService.preview
-        scannerService.startScanning()
+        view.layer = previewLayer
+        
+        // Store the preview layer reference without using @Published
+        DispatchQueue.main.async {
+            scannerService.preview = previewLayer
+            scannerService.startScanning()
+        }
         
         return view
     }

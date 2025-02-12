@@ -292,7 +292,12 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
 @available(iOS 13.0, *)
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
-    
+
+    // Mark the initializer as public
+    public init(scannerService: ProductScannerService) {
+        self.scannerService = scannerService
+    }
+
     public func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: UIScreen.main.bounds)
         let previewLayer = AVCaptureVideoPreviewLayer(session: scannerService.session)
@@ -302,37 +307,38 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
             connection.videoOrientation = .portrait
         }
         view.layer.addSublayer(previewLayer)
-        scannerService.preview = previewLayer
-        scannerService.startScanning()
+        DispatchQueue.main.async {
+            scannerService.preview = previewLayer
+            scannerService.startScanning()
+        }
         return view
     }
-    
+
     public func updateUIView(_ uiView: UIView, context: Context) {}
-    
-    public func dismantleUIView(_ uiView: UIView, coordinator: ()) {
-        scannerService.stopScanning()
-    }
 }
 #elseif os(macOS)
 @available(macOS 13.0, *)
 public struct BarcodeScannerPreviewView: NSViewRepresentable {
     @ObservedObject var scannerService: ProductScannerService
-    
+
+    // Mark the initializer as public
+    public init(scannerService: ProductScannerService) {
+        self.scannerService = scannerService
+    }
+
     public func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         let previewLayer = AVCaptureVideoPreviewLayer(session: scannerService.session)
         previewLayer.frame = view.bounds
         previewLayer.videoGravity = .resizeAspect
         view.layer = previewLayer
-        scannerService.preview = previewLayer
-        scannerService.startScanning()
+        DispatchQueue.main.async {
+            scannerService.preview = previewLayer
+            scannerService.startScanning()
+        }
         return view
     }
-    
+
     public func updateNSView(_ nsView: NSView, context: Context) {}
-    
-    public func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        scannerService.stopScanning()
-    }
 }
 #endif

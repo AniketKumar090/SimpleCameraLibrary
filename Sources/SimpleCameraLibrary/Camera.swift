@@ -22,7 +22,7 @@ struct OpenFoodFactsProduct: Codable {
     let image_url: String?
     let categories: String?
     let generic_name: String?
-    let _keywords: [String]?  // Make sure this matches the API response exactly
+    let _keywords: [String]?
     
     private enum CodingKeys: String, CodingKey {
         case product_name
@@ -30,17 +30,17 @@ struct OpenFoodFactsProduct: Codable {
         case image_url
         case categories
         case generic_name
-        case _keywords = "_keywords"  // Explicitly map to match API response
+        case _keywords = "_keywords"
     }
 }
-// Update ProductInfo to include drink category string
+
 public struct ProductInfo: Codable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let volume: String
     public let imageUrl: String?
     public let keywords: [String]?
-    public let drinkCategory: String? // Add this field
+    public let drinkCategory: String?
     
     public static func == (lhs: ProductInfo, rhs: ProductInfo) -> Bool {
         return lhs.id == rhs.id &&
@@ -52,7 +52,7 @@ public struct ProductInfo: Codable, Identifiable, Equatable {
     }
 }
 
-// MARK: - Barcode Scanning and Product Service
+// MARK: - Product Scanner Service
 @available(iOS 13.0, macOS 13.0, *)
 public class ProductScannerService: NSObject, ObservableObject {
     @Published public var session = AVCaptureSession()
@@ -67,85 +67,65 @@ public class ProductScannerService: NSObject, ObservableObject {
     private var isProcessingBarcode = false
     private var lastScannedBarcode: String?
     private var lastScanTime: Date?
-    private let scanCooldown: TimeInterval = 2.0 // Cooldown period in seconds
-       
-    // UserDefaults key for storing product information
-    private let userDefaultsProductInfoKey = "SavedProductInformation"
+    private let scanCooldown: TimeInterval = 2.0
+    private var isSessionConfigured = false
+    private let sessionQueue = DispatchQueue(label: "com.scanner.sessionQueue", qos: .userInitiated)
     
-    // Cached product information from UserDefaults
+    private let userDefaultsProductInfoKey = "SavedProductInformation"
     private var cachedProductInfo: [String: ProductInfo] = [:]
     
     public override init() {
         super.init()
         loadCachedProductInfo()
         checkPermissions()
-        setupBarcodeScanner()
     }
     
-    
-        
-    public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
-        let categories = categories?.lowercased() ?? ""
-        let genericName = genericName?.lowercased() ?? ""
-        let combinedText = categories + " " + genericName
-        
-        if combinedText.contains("water") || combinedText.contains("eau") {
-            return "water"
-        } else if combinedText.contains("tea") || combinedText.contains("thé") {
-            return "tea"
-        } else if combinedText.contains("coffee") || combinedText.contains("café") {
-            return "coffee"
-        } else if combinedText.contains("soda") || combinedText.contains("soft drink") {
-            return "soda"
-        }
-        return nil
-    }
-    // MARK: - Open Food Facts Product Lookup
+    // MARK: - Cache Management
     public func clearCache() {
-            cachedProductInfo.removeAll()
-            UserDefaults.standard.removeObject(forKey: userDefaultsProductInfoKey)
-        }
-        
-        private func loadCachedProductInfo() {
-            if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey) {
-                do {
-                    let decoder = JSONDecoder()
-                    cachedProductInfo = try decoder.decode([String: ProductInfo].self, from: savedData)
-                    print("Loaded cache with \(cachedProductInfo.count) items")
-                    
-                    // Debug: Print cached items
-                    for (barcode, info) in cachedProductInfo {
-                        print("Cached item:")
-                        print("- Barcode: \(barcode)")
-                        print("- Name: \(info.name)")
-                        print("- Keywords: \(info.keywords ?? [])")
-                        print("- DrinkCategory: \(info.drinkCategory ?? "nil")")
-                    }
-                } catch {
-                    print("Error loading cache: \(error)")
-                    // If there's an error loading the cache, clear it
-                    clearCache()
-                }
-            }
-        }
-        
-        private func saveProductInfo(_ product: ProductInfo) {
-            print("Saving product to cache:")
-            print("- Name: \(product.name)")
-            print("- Keywords: \(product.keywords ?? [])")
-            print("- DrinkCategory: \(product.drinkCategory ?? "nil")")
-            
-            cachedProductInfo[product.id] = product
-            
+        cachedProductInfo.removeAll()
+        UserDefaults.standard.removeObject(forKey: userDefaultsProductInfoKey)
+    }
+    
+    private func loadCachedProductInfo() {
+        if let savedData = UserDefaults.standard.data(forKey: userDefaultsProductInfoKey) {
             do {
-                let encoder = JSONEncoder()
-                let encoded = try encoder.encode(cachedProductInfo)
-                UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
-                print("Successfully saved to cache")
+                let decoder = JSONDecoder()
+                cachedProductInfo = try decoder.decode([String: ProductInfo].self, from: savedData)
+                print("Loaded cache with \(cachedProductInfo.count) items")
+                
+                for (barcode, info) in cachedProductInfo {
+                    print("Cached item:")
+                    print("- Barcode: \(barcode)")
+                    print("- Name: \(info.name)")
+                    print("- Keywords: \(info.keywords ?? [])")
+                    print("- DrinkCategory: \(info.drinkCategory ?? "nil")")
+                }
             } catch {
-                print("Error saving to cache: \(error)")
+                print("Error loading cache: \(error)")
+                clearCache()
             }
         }
+    }
+    
+    private func saveProductInfo(_ product: ProductInfo) {
+        print("Saving product to cache:")
+        print("- Name: \(product.name)")
+        print("- Keywords: \(product.keywords ?? [])")
+        print("- DrinkCategory: \(product.drinkCategory ?? "nil")")
+        
+        cachedProductInfo[product.id] = product
+        
+        do {
+            let encoder = JSONEncoder()
+            let encoded = try encoder.encode(cachedProductInfo)
+            UserDefaults.standard.set(encoded, forKey: userDefaultsProductInfoKey)
+            print("Successfully saved to cache")
+        } catch {
+            print("Error saving to cache: \(error)")
+        }
+    }
+    
+    // MARK: - Product Information Lookup
     public func lookupProductInformation(barcode: String) {
         isLoading = true
         errorMessage = nil
@@ -164,7 +144,7 @@ public class ProductScannerService: NSObject, ObservableObject {
             
             DispatchQueue.main.async {
                 self.isLoading = false
-                self.isProcessingBarcode = false // Reset processing state
+                self.isProcessingBarcode = false
                 
                 if let error = error {
                     print("Network error: \(error)")
@@ -202,9 +182,7 @@ public class ProductScannerService: NSObject, ObservableObject {
                         drinkCategory: drinkCategory
                     )
                     
-                    // Save to cache
                     self.saveProductInfo(productInfo)
-                    
                     self.productInfo = productInfo
                     self.showingScanResult = true
                     self.stopScanning()
@@ -216,26 +194,32 @@ public class ProductScannerService: NSObject, ObservableObject {
             }
         }.resume()
     }
-      
-    private func extractKeywords(from categories: String?) -> [String]? {
-        guard let categories = categories else { return nil }
+    
+    // MARK: - Helper Methods
+    public func determineDrinkCategory(categories: String?, genericName: String?) -> String? {
+        let categories = categories?.lowercased() ?? ""
+        let genericName = genericName?.lowercased() ?? ""
+        let combinedText = categories + " " + genericName
         
-        // Split categories by commas and clean up each keyword
-        return categories
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        if combinedText.contains("water") || combinedText.contains("eau") {
+            return "water"
+        } else if combinedText.contains("tea") || combinedText.contains("thé") {
+            return "tea"
+        } else if combinedText.contains("coffee") || combinedText.contains("café") {
+            return "coffee"
+        } else if combinedText.contains("soda") || combinedText.contains("soft drink") {
+            return "soda"
+        }
+        return nil
     }
-    // Helper method to extract volume from quantity string
+    
     private func extractVolume(from quantityString: String?) -> String? {
         guard let quantity = quantityString else { return nil }
         
-        // Extract numeric value followed by ml, cl, L, etc.
         let volumeRegex = try? NSRegularExpression(pattern: "(\\d+)\\s*(ml|cl|L|liters?|g|kg)", options: .caseInsensitive)
         let range = NSRange(location: 0, length: quantity.utf16.count)
         
         if let match = volumeRegex?.firstMatch(in: quantity, options: [], range: range) {
-            // Safely extract the captured group
             let matchRange = match.range(at: 0)
             
             if matchRange.location != NSNotFound,
@@ -251,21 +235,54 @@ public class ProductScannerService: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.errorMessage = message
             self.showingScanResult = true
-            self.isProcessingBarcode = false // Reset processing state on error
+            self.isProcessingBarcode = false
         }
     }
-
-    // MARK: - Camera Permissions
+    
+    // MARK: - Camera Setup and Control
+    private func setupBarcodeScanner() {
+        guard !isSessionConfigured else { return }
+        
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.session.beginConfiguration()
+            
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
+                                                     for: .video,
+                                                     position: .back) else { return }
+            
+            do {
+                let input = try AVCaptureDeviceInput(device: device)
+                
+                if self.session.canAddInput(input) {
+                    self.session.addInput(input)
+                }
+                
+                self.metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+                if self.session.canAddOutput(self.metadataOutput) {
+                    self.session.addOutput(self.metadataOutput)
+                    self.metadataOutput.metadataObjectTypes = [
+                        .ean8, .ean13, .qr, .code128, .code39, .code93, .upce
+                    ]
+                }
+                
+                self.session.commitConfiguration()
+                self.isSessionConfigured = true
+            } catch {
+                print("Error setting up barcode scanner: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     private func checkPermissions() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            return
+            setupBarcodeScanner()
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 if granted {
-                    DispatchQueue.main.async {
-                        self.setupBarcodeScanner()
-                    }
+                    self?.setupBarcodeScanner()
                 }
             }
         default:
@@ -273,74 +290,49 @@ public class ProductScannerService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Barcode Scanner Setup
-    private func setupBarcodeScanner() {
-        do {
-            session.beginConfiguration()
-            
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                     for: .video,
-                                                     position: .back) else { return }
-            
-            let input = try AVCaptureDeviceInput(device: device)
-            
-            if session.canAddInput(input) {
-                session.addInput(input)
-            }
-            
-            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-            if session.canAddOutput(metadataOutput) {
-                session.addOutput(metadataOutput)
-                
-                // Set barcode types you want to scan
-                metadataOutput.metadataObjectTypes = [
-                    .ean8,
-                    .ean13,
-                    .qr,
-                    .code128,
-                    .code39,
-                    .code93,
-                    .upce
-                ]
-            }
-            
-            session.commitConfiguration()
-        } catch {
-            print("Error setting up barcode scanner: \(error.localizedDescription)")
-        }
-    }
-    
-    // MARK: - Scanning Control
-    public func resetScanningState() {
-        isProcessingBarcode = false
-        lastScannedBarcode = nil
-        lastScanTime = nil
-        errorMessage = nil
-        showingScanResult = false
-        productInfo = nil
-    }
-        
-        // Modify startScanning to reset state
     public func startScanning() {
         resetScanningState()
-        DispatchQueue.global(qos: .background).async {
-            self.session.startRunning()
+        
+        if !isSessionConfigured {
+            setupBarcodeScanner()
+        }
+        
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
         }
     }
     
     public func stopScanning() {
-        DispatchQueue.global(qos: .background).async {
-            self.session.stopRunning()
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if self.session.isRunning {
+                self.session.stopRunning()
+            }
+        }
+    }
+    
+    public func resetScanningState() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.isProcessingBarcode = false
+            self.lastScannedBarcode = nil
+            self.lastScanTime = nil
+            self.errorMessage = nil
+            self.showingScanResult = false
+            self.productInfo = nil
         }
     }
 }
 
-// MARK: - Metadata Capture Delegate
+// MARK: - AVCaptureMetadataOutputObjectsDelegate
 @available(iOS 13.0, macOS 13.0, *)
 extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
     public func metadataOutput(_ output: AVCaptureMetadataOutput,
-                                 didOutput metadataObjects: [AVMetadataObject],
-                               from connection: AVCaptureConnection) {
+                             didOutput metadataObjects: [AVMetadataObject],
+                             from connection: AVCaptureConnection) {
         guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               let barcode = metadataObject.stringValue else {
             return
@@ -349,12 +341,10 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
-            // Check if we're already processing a barcode
             guard !self.isProcessingBarcode else {
                 return
             }
             
-            // Check if this is the same barcode scanned recently
             if let lastBarcode = self.lastScannedBarcode,
                let lastTime = self.lastScanTime,
                lastBarcode == barcode &&
@@ -362,13 +352,11 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
                 return
             }
             
-            // Update state tracking
             self.isProcessingBarcode = true
             self.lastScannedBarcode = barcode
             self.lastScanTime = Date()
             self.scannedBarcode = barcode
             
-            // First check the cache
             if let cachedProduct = self.cachedProductInfo[barcode] {
                 self.productInfo = cachedProduct
                 self.showingScanResult = true
@@ -377,13 +365,12 @@ extension ProductScannerService: AVCaptureMetadataOutputObjectsDelegate {
                 return
             }
             
-            // If not in cache, make the API call
             self.lookupProductInformation(barcode: barcode)
         }
     }
 }
 
-// MARK: - Barcode Scanner Preview View (Platform-Specific)
+// MARK: - Preview View
 #if os(iOS)
 @available(iOS 13.0, *)
 public struct BarcodeScannerPreviewView: UIViewRepresentable {
@@ -400,14 +387,12 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
         previewLayer.frame = view.bounds
         previewLayer.videoGravity = .resizeAspectFill
         
-        // Set the preview layer's orientation
         if let connection = previewLayer.connection {
             connection.videoOrientation = .portrait
         }
         
         view.layer.addSublayer(previewLayer)
         
-        // Store the preview layer reference without using @Published
         DispatchQueue.main.async {
             scannerService.preview = previewLayer
             scannerService.startScanning()
@@ -437,7 +422,6 @@ public struct BarcodeScannerPreviewView: NSViewRepresentable {
         
         view.layer = previewLayer
         
-        // Store the preview layer reference without using @Published
         DispatchQueue.main.async {
             scannerService.preview = previewLayer
             scannerService.startScanning()

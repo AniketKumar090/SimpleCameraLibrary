@@ -227,9 +227,6 @@ public class ProductScannerService: NSObject, ObservableObject {
     }
 
     public func startScanning() {
-        if !isSessionConfigured {
-            setupBarcodeScanner()
-        }
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
             if !self.session.isRunning {
@@ -305,7 +302,11 @@ public struct BarcodeScannerPreviewView: UIViewRepresentable {
         }
         view.layer.addSublayer(previewLayer)
         scannerService.preview = previewLayer
-        scannerService.startScanning()
+
+        // Start scanning after the preview layer is added
+        DispatchQueue.main.async {
+            scannerService.startScanning()
+        }
         return view
     }
 
